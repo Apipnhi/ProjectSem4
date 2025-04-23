@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rekomendasi Paket</title>
-    <link rel="stylesheet" href="DhomePage.css">
+    <link rel="stylesheet" href="DehomePage.css">
 </head>
 <body>
     <header>
@@ -17,33 +17,49 @@
         <h2>Rekomendasi Paket</h2>
         <div class="paket-container">
             <?php
-            // API Key dan endpoint Groq
             $apiKey = "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";
             $groqEndpoint = "https://api.groq.com/openai/v1/chat/completions";
 
-            // 1. Baca data CSV
-            $csv = array_map('str_getcsv', file('data.csv'));
-            $header = array_shift($csv);
-            $invoiceIndex = array_search('InvoiceNo', $header);
-            $descIndex = array_search('Description', $header);
-
+            // Baca file CSV dan ambil produk berdasarkan InvoiceNo dan Description
             $groupedData = [];
-            foreach ($csv as $row) {
-                $invoice = $row[$invoiceIndex];
-                $desc = trim($row[$descIndex]);
-                if ($desc !== '') {
-                    $groupedData[$invoice][] = $desc;
+            if (($handle = fopen("data.csv", "r")) !== FALSE) {
+                $header = fgetcsv($handle);
+                $invoiceIndex = array_search('InvoiceNo', $header);
+                $descIndex = array_search('Description', $header);
+
+                while (($row = fgetcsv($handle)) !== FALSE) {
+                    $invoice = $row[$invoiceIndex];
+                    $desc = trim($row[$descIndex]);
+                    if ($desc !== '') {
+                        $groupedData[$invoice][] = $desc;
+                    }
                 }
+                fclose($handle);
             }
 
-            // 2. Siapkan prompt untuk Groq
-            $prompt = "Berikan 3 paket makanan rekomendasi berdasarkan data penjualan berikut. "
-                    . "Setiap paket harus memiliki 4 item makanan dan tidak boleh sama antar paket:\n\n"
-                    . json_encode(array_values($groupedData), JSON_PRETTY_PRINT);
+            // Ambil 100 item unik
+            $sample = array_slice(array_values($groupedData), 0, 100);
+            $flattened = [];
+            foreach ($sample as $group) {
+                foreach ($group as $item) {
+                    $flattened[] = $item;
+                }
+            }
+            $uniqueItems = array_values(array_unique($flattened));
+            $limitedItems = array_slice($uniqueItems, 0, 100);
 
-            // 3. Kirim ke Groq API
+            // Prompt eksplisit
+            $prompt = "Saya memiliki daftar produk terjual dari restoran:\n\n"
+                . implode("\n", $limitedItems)
+                . "\n\nBuatkan 3 rekomendasi paket makanan. "
+                . "Masing-masing paket harus memiliki 4 item berbeda dan tidak ada item yang sama antar paket. "
+                . "Jawab hanya dengan format JSON seperti ini:\n"
+                . '[{"paket": "Paket 1", "items": ["Item A", "Item B", "Item C", "Item D"]}, {"paket": "Paket 2", "items": [...]}] '
+                . "Tanpa penjelasan sebelum atau sesudah JSON.";
+
+            // Kirim permintaan ke Groq
             $data = [
-                "model" => "mixtral-8x7b-32768",
+                "model" => "llama3-70b-8192",
                 "messages" => [
                     ["role" => "system", "content" => "Kamu adalah asisten rekomendasi menu restoran."],
                     ["role" => "user", "content" => $prompt]
@@ -62,28 +78,25 @@
             $response = curl_exec($ch);
             curl_close($ch);
 
+            // Parsing
             $reply = json_decode($response, true);
             $content = $reply['choices'][0]['message']['content'] ?? "[]";
 
-            // 4. Parsing jawaban Groq
-            preg_match_all('/Paket\s*\d+[:\-]?\s*(.*?)(?=\nPaket|\Z)/is', $content, $matches);
-            $paketList = $matches[1];
-
-            if (count($paketList) < 3) {
-                echo "<p>Gagal memuat rekomendasi paket. Silakan coba lagi.</p>";
+            // Parsing JSON hasil dari Groq
+            $paketList = json_decode($content, true);
+            if (!is_array($paketList)) {
+                echo "<p>Gagal memuat rekomendasi paket. Format tidak sesuai.</p>";
             } else {
-                foreach ($paketList as $index => $rawText) {
-                    $items = array_filter(array_map('trim', preg_split('/[\n\-]+/', $rawText)));
-                    $items = array_slice($items, 0, 4); // maksimal 4 item
+                foreach ($paketList as $paket) {
+                    $items = $paket['items'] ?? [];
                     echo "<div class='paket'>";
-                    echo "<div class='paket-title'>Paket " . ($index + 1) . "</div>";
+                    echo "<div class='paket-title'>" . htmlspecialchars($paket['paket']) . "</div>";
                     echo "<ul>";
                     foreach ($items as $item) {
                         echo "<li>" . htmlspecialchars($item) . "</li>";
                     }
                     echo "</ul>";
-                    $btnText = ($index === 1 || $index === 3) ? "Berlangsung" : "Gunakan";
-                    echo "<button class='paket-btn'>$btnText</button>";
+                    echo "<button class='paket-btn'>Gunakan</button>";
                     echo "</div>";
                 }
             }

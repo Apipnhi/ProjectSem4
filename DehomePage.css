@@ -1,5 +1,5 @@
 body {
-    font-family: Arial, sans-serif;
+    font-family:system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
     background-color: #f5f6ff;
     margin: 0;
     padding: 0;
@@ -8,19 +8,23 @@ body {
 header {
     display: flex;
     justify-content: space-around;
-    background-color: #fff;
-    padding: 1em;
+    background-color: #10375c;
+    padding: 10px;
     font-weight: bold;
+    color: #F4f6FF;
     box-shadow: 0 2px 5px rgba(0,0,0,0.1);
 }
 
 #rekomendasiPaket {
     text-align: center;
     margin: 2em;
+    background-color: #FFFFFF;
+    height: 100%;
+    width: 50%;
 }
 
 #rekomendasiPaket h2 {
-    color: #1c3556;
+    color: #10375c;
     font-size: 1.5em;
     margin-bottom: 2em;
 }
@@ -72,7 +76,3 @@ ul li {
     cursor: pointer;
 }
 
-.paket:nth-child(2) .paket-btn,
-.paket:nth-child(4) .paket-btn {
-    background-color: #1c3556;
-}
