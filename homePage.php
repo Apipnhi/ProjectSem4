@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Grafik Penjualan & Rekomendasi Paket</title>
-    <link rel="stylesheet" href="DesignhomePage.css">
+    <link rel="stylesheet" href="DeshomePage.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -36,7 +36,7 @@
         $periode = $_GET['periode'] ?? '1_bulan_lalu';
         $dataPoints = [];
 
-        if (($handle = fopen("penjualan_restoran.csv", "r")) !== FALSE) {
+        if (($handle = fopen("penjualan_restoran_format_contoh.csv", "r")) !== FALSE) {
             $header = fgetcsv($handle);
             $dateIndex = array_search('InvoiceDate', $header);
             $priceIndex = array_search('UnitPrice', $header);
@@ -103,7 +103,7 @@
             $groqEndpoint = "https://api.groq.com/openai/v1/chat/completions";
 
             $groupedData = [];
-            if (($handle = fopen("penjualan_restoran.csv", "r")) !== FALSE) {
+            if (($handle = fopen("data.csv", "r")) !== FALSE) {
                 $header = fgetcsv($handle);
                 $invoiceIndex = array_search('InvoiceNo', $header);
                 $descIndex = array_search('Description', $header);
