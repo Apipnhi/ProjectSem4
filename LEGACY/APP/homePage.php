@@ -139,7 +139,7 @@
             $data = [
                 "model" => "llama3-70b-8192",
                 "messages" => [
-                    ["role" => "system", "content" => "Kamu adalah asisten rekomendasi menu restoran."],
+                    ["role" => "system", "content" => "Anda adalah asisten rekomendasi menu restoran."],
                     ["role" => "user", "content" => $prompt]
                 ],
                 "temperature" => 0.7
