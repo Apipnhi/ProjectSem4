@@ -2,19 +2,8 @@
 
 import type React from "react"
 
-import { useState } from "react"
-import {
-  BarChart3,
-  ClipboardList,
-  Home,
-  LogOut,
-  Menu,
-  Package,
-  Settings,
-  ShoppingBag,
-  Users,
-  QrCode,
-} from "lucide-react"
+import { useState, useEffect } from "react"
+import { BarChart3, ClipboardList, Home, LogOut, Menu, Settings, ShoppingBag, Users, TrendingUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
@@ -34,6 +23,45 @@ interface DashboardLayoutProps {
 
 export function DashboardLayout({ children, title }: DashboardLayoutProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+
+  // Check authentication on component mount
+  useEffect(() => {
+    const user = localStorage.getItem("user")
+    const token = localStorage.getItem("token")
+
+    if (!user || !token) {
+      window.location.href = "/login"
+      return
+    }
+
+    setIsAuthenticated(true)
+    setIsLoading(false)
+  }, [])
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-navy-blue mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading Dashboard...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return null
+  }
+
+  const handleLogout = () => {
+    // Clear any stored authentication data
+    localStorage.removeItem("user")
+    localStorage.removeItem("token")
+    // Redirect to login page
+    window.location.href = "/login"
+  }
 
   return (
     <div className="flex min-h-screen bg-gray-50">
@@ -41,6 +69,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
       <aside className="hidden md:flex flex-col w-64 bg-navy-blue text-white">
         <div className="p-4 border-b border-navy-blue-700">
           <h2 className="text-xl font-bold">Restomate</h2>
+          <p className="text-xs text-navy-blue-200">Restaurant Management</p>
         </div>
         <nav className="flex-1 p-4">
           <ul className="space-y-2">
@@ -64,29 +93,29 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
             </li>
             <li>
               <a
-                href="/dashboard/qr-generator"
-                className={`flex items-center p-2 rounded-lg ${title === "QR Code Generator" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
-              >
-                <QrCode className="mr-3 h-5 w-5" />
-                QR Generator
-              </a>
-            </li>
-            <li>
-              <a
-                href="/dashboard/stock"
-                className={`flex items-center p-2 rounded-lg ${title === "Stock Management" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
-              >
-                <Package className="mr-3 h-5 w-5" />
-                Stock Management
-              </a>
-            </li>
-            <li>
-              <a
                 href="/dashboard/menu"
                 className={`flex items-center p-2 rounded-lg ${title === "Menu Management" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
               >
                 <ShoppingBag className="mr-3 h-5 w-5" />
                 Menu Management
+              </a>
+            </li>
+            <li>
+              <a
+                href="/dashboard/transactions"
+                className={`flex items-center p-2 rounded-lg ${title === "Transactions" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
+              >
+                <BarChart3 className="mr-3 h-5 w-5" />
+                Transactions
+              </a>
+            </li>
+            <li>
+              <a
+                href="/dashboard/sales-report"
+                className={`flex items-center p-2 rounded-lg ${title === "Sales Report" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
+              >
+                <TrendingUp className="mr-3 h-5 w-5" />
+                Sales Report
               </a>
             </li>
             <li>
@@ -101,7 +130,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
           </ul>
         </nav>
         <div className="p-4 border-t border-navy-blue-700">
-          <button className="flex items-center w-full p-2 rounded-lg hover:bg-navy-blue-700">
+          <button onClick={handleLogout} className="flex items-center w-full p-2 rounded-lg hover:bg-navy-blue-700">
             <LogOut className="mr-3 h-5 w-5" />
             Log Out
           </button>
@@ -113,6 +142,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
         <SheetContent side="left" className="w-64 p-0 bg-navy-blue text-white">
           <div className="p-4 border-b border-navy-blue-700">
             <h2 className="text-xl font-bold">Restomate</h2>
+            <p className="text-xs text-navy-blue-200">Restaurant Management</p>
           </div>
           <nav className="flex-1 p-4">
             <ul className="space-y-2">
@@ -136,29 +166,29 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
               </li>
               <li>
                 <a
-                  href="/dashboard/qr-generator"
-                  className={`flex items-center p-2 rounded-lg ${title === "QR Code Generator" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
-                >
-                  <QrCode className="mr-3 h-5 w-5" />
-                  QR Generator
-                </a>
-              </li>
-              <li>
-                <a
-                  href="/dashboard/stock"
-                  className={`flex items-center p-2 rounded-lg ${title === "Stock Management" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
-                >
-                  <Package className="mr-3 h-5 w-5" />
-                  Stock Management
-                </a>
-              </li>
-              <li>
-                <a
                   href="/dashboard/menu"
                   className={`flex items-center p-2 rounded-lg ${title === "Menu Management" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
                 >
                   <ShoppingBag className="mr-3 h-5 w-5" />
                   Menu Management
+                </a>
+              </li>
+              <li>
+                <a
+                  href="/dashboard/transactions"
+                  className={`flex items-center p-2 rounded-lg ${title === "Transactions" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
+                >
+                  <BarChart3 className="mr-3 h-5 w-5" />
+                  Transactions
+                </a>
+              </li>
+              <li>
+                <a
+                  href="/dashboard/sales-report"
+                  className={`flex items-center p-2 rounded-lg ${title === "Sales Report" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
+                >
+                  <TrendingUp className="mr-3 h-5 w-5" />
+                  Sales Report
                 </a>
               </li>
               <li>
@@ -173,7 +203,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
             </ul>
           </nav>
           <div className="p-4 border-t border-navy-blue-700">
-            <button className="flex items-center w-full p-2 rounded-lg hover:bg-navy-blue-700">
+            <button onClick={handleLogout} className="flex items-center w-full p-2 rounded-lg hover:bg-navy-blue-700">
               <LogOut className="mr-3 h-5 w-5" />
               Log Out
             </button>
@@ -213,10 +243,12 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem>
-                    <Settings className="mr-2 h-4 w-4" />
-                    <span>Settings</span>
+                    <a href="/dashboard/account-edit" className="flex items-center w-full">
+                      <Settings className="mr-2 h-4 w-4" />
+                      <span>Account Settings</span>
+                    </a>
                   </DropdownMenuItem>
-                  <DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleLogout}>
                     <LogOut className="mr-2 h-4 w-4" />
                     <span>Log out</span>
                   </DropdownMenuItem>

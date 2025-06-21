@@ -1,49 +1,27 @@
-'use client'
+"use client"
 
-import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect } from "react"
 
-export default function Home() {
-  const router = useRouter()
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
+export default function HomePage() {
+  useEffect(() => {
+    // Check if user is logged in
+    const user = localStorage.getItem("user")
+    const token = localStorage.getItem("token")
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
-
-    if (username === 'admin' && password === '1234') {
-      router.push('/dashboard')
+    if (user && token) {
+      // User is logged in, redirect to dashboard
+      window.location.href = "/dashboard"
     } else {
-      alert('Invalid credentials')
+      // User is not logged in, redirect to login
+      window.location.href = "/login"
     }
-  }
+  }, [])
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-900 to-blue-700">
-      <div className="bg-white shadow-xl rounded-xl p-10 w-full max-w-md">
-        <h1 className="text-3xl font-bold text-blue-900 text-center mb-6">Restaurant Dashboard Login</h1>
-        <form onSubmit={handleLogin} className="flex flex-col space-y-4">
-          <input
-            type="text"
-            placeholder="Username"
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-            className="border border-blue-300 focus:border-blue-500 focus:ring focus:ring-blue-200 p-3 rounded-lg outline-none"
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            className="border border-blue-300 focus:border-blue-500 focus:ring focus:ring-blue-200 p-3 rounded-lg outline-none"
-          />
-          <button
-            type="submit"
-            className="bg-blue-900 text-white font-semibold py-3 rounded-lg hover:bg-blue-800 transition"
-          >
-            Login
-          </button>
-        </form>
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-navy-blue mx-auto"></div>
+        <p className="mt-4 text-gray-600">Loading Restomate...</p>
       </div>
     </div>
   )
