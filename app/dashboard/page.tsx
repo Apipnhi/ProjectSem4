@@ -13,7 +13,7 @@ import {
   Tooltip,
   XAxis,
   YAxis,
-} from "@/components/ui/chart"
+} from "recharts"
 
 export default function DashboardPage() {
   // Sample data for the dashboard

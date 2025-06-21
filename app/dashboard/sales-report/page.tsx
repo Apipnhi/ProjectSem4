@@ -21,7 +21,7 @@ import {
   Tooltip,
   XAxis,
   YAxis,
-} from "@/components/ui/chart"
+} from "recharts"
 
 export default function SalesReportPage() {
   const [reportPeriod, setReportPeriod] = useState("daily")
