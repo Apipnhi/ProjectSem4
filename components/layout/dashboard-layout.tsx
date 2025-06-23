@@ -3,6 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
+import Link from "next/link"
 import { BarChart3, ClipboardList, Home, LogOut, Menu, Settings, ShoppingBag, Users, TrendingUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -74,58 +75,58 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
         <nav className="flex-1 p-4">
           <ul className="space-y-2">
             <li>
-              <a
+              <Link
                 href="/dashboard"
                 className={`flex items-center p-2 rounded-lg ${title === "Dashboard" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
               >
                 <Home className="mr-3 h-5 w-5" />
                 Dashboard
-              </a>
+              </Link>
             </li>
             <li>
-              <a
+              <Link
                 href="/dashboard/orders"
                 className={`flex items-center p-2 rounded-lg ${title === "Orders Management" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
               >
                 <ClipboardList className="mr-3 h-5 w-5" />
                 Orders
-              </a>
+              </Link>
             </li>
             <li>
-              <a
+              <Link
                 href="/dashboard/menu"
                 className={`flex items-center p-2 rounded-lg ${title === "Menu Management" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
               >
                 <ShoppingBag className="mr-3 h-5 w-5" />
                 Menu Management
-              </a>
+              </Link>
             </li>
             <li>
-              <a
+              <Link
                 href="/dashboard/transactions"
                 className={`flex items-center p-2 rounded-lg ${title === "Transactions" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
               >
                 <BarChart3 className="mr-3 h-5 w-5" />
                 Transactions
-              </a>
+              </Link>
             </li>
             <li>
-              <a
+              <Link
                 href="/dashboard/sales-report"
                 className={`flex items-center p-2 rounded-lg ${title === "Sales Report" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
               >
                 <TrendingUp className="mr-3 h-5 w-5" />
                 Sales Report
-              </a>
+              </Link>
             </li>
             <li>
-              <a
-                href="/dashboard/accounts"
+              <Link
+                href="/dashboard/account-edit"
                 className={`flex items-center p-2 rounded-lg ${title === "Account Management" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
               >
                 <Users className="mr-3 h-5 w-5" />
                 Account Management
-              </a>
+              </Link>
             </li>
           </ul>
         </nav>
@@ -147,58 +148,58 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
           <nav className="flex-1 p-4">
             <ul className="space-y-2">
               <li>
-                <a
+                <Link
                   href="/dashboard"
                   className={`flex items-center p-2 rounded-lg ${title === "Dashboard" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
                 >
                   <Home className="mr-3 h-5 w-5" />
                   Dashboard
-                </a>
+                </Link>
               </li>
               <li>
-                <a
+                <Link
                   href="/dashboard/orders"
                   className={`flex items-center p-2 rounded-lg ${title === "Orders Management" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
                 >
                   <ClipboardList className="mr-3 h-5 w-5" />
                   Orders
-                </a>
+                </Link>
               </li>
               <li>
-                <a
+                <Link
                   href="/dashboard/menu"
                   className={`flex items-center p-2 rounded-lg ${title === "Menu Management" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
                 >
                   <ShoppingBag className="mr-3 h-5 w-5" />
                   Menu Management
-                </a>
+                </Link>
               </li>
               <li>
-                <a
+                <Link
                   href="/dashboard/transactions"
                   className={`flex items-center p-2 rounded-lg ${title === "Transactions" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
                 >
                   <BarChart3 className="mr-3 h-5 w-5" />
                   Transactions
-                </a>
+                </Link>
               </li>
               <li>
-                <a
+                <Link
                   href="/dashboard/sales-report"
                   className={`flex items-center p-2 rounded-lg ${title === "Sales Report" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
                 >
                   <TrendingUp className="mr-3 h-5 w-5" />
                   Sales Report
-                </a>
+                </Link>
               </li>
               <li>
-                <a
-                  href="/dashboard/accounts"
+                <Link
+                  href="/dashboard/account-edit"
                   className={`flex items-center p-2 rounded-lg ${title === "Account Management" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
                 >
                   <Users className="mr-3 h-5 w-5" />
                   Account Management
-                </a>
+                </Link>
               </li>
             </ul>
           </nav>
