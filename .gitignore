@@ -14,7 +14,13 @@ pnpm-debug.log*
 
 # Environment variables
 .env
-.env.*     # untuk file seperti .env.local, .env.production, dll
+# .env.*  #Temporarily disabled unless needed   # untuk file seperti .env.local, .env.production, dll
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+# Ignore all .env files except .env.example
+!.env.example
 
 # Vercel deployment
 .vercel/
@@ -26,3 +32,6 @@ next-env.d.ts
 # OS-specific
 .DS_Store
 Thumbs.db
+
+# Test Folder
+DUMMY_FOLDER/
