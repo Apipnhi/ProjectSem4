@@ -128,6 +128,15 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                 Account Management
               </Link>
             </li>
+            <li>
+              <Link
+                href="/dashboard/qr-generator"
+                className={`flex items-center p-2 rounded-lg ${title === "QR Generator" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
+              >
+                <Users className="mr-3 h-5 w-5" />
+                QR Generator
+              </Link>
+            </li>
           </ul>
         </nav>
         <div className="p-4 border-t border-navy-blue-700">
@@ -199,6 +208,15 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                 >
                   <Users className="mr-3 h-5 w-5" />
                   Account Management
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/dashboard/qr-generator"
+                  className={`flex items-center p-2 rounded-lg ${title === "QR Generator" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
+                >
+                  <Users className="mr-3 h-5 w-5" />
+                  QR Generator
                 </Link>
               </li>
             </ul>
