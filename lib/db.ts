@@ -2,7 +2,7 @@ import mysql from "mysql2/promise"
 
 // Database connection configuration
 const dbConfig = {
-  host: process.env.MYSQL_HOST || "localhost",
+  host: process.env.MYSQL_HOST,
   port: Number.parseInt(process.env.MYSQL_PORT || "3306"),
   database: process.env.MYSQL_DATABASE,
   user: process.env.MYSQL_USER,
