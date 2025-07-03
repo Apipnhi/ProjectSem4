@@ -1,10 +1,25 @@
 import { NextResponse } from "next/server"
+import { callGroqLLM } from '@/lib/utils'
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY
 
 export async function POST(request: Request) {
   try {
-    const { salesData, period } = await request.json()
+    const { salesData, period, menuSales } = await request.json()
+
+    // If menuSales is provided, predict top selling menu items
+    if (menuSales) {
+      const typedMenuSales: { name: string; sales: number; revenue: number }[] = menuSales
+      const salesLines: string[] = typedMenuSales.map((item: { name: string; sales: number; revenue: number }) => `${item.name}: ${item.sales} sales, $${item.revenue} revenue`)
+      const prompt = `Given the following menu sales data, predict the top 3 best selling menu items for the next ${period} and briefly explain why.\n\nMenu Sales Data:\n${salesLines.join("\n")}\n\nReturn your answer as a JSON array of objects with 'name', 'predictedSales', and 'reason' fields.`
+      const llmResponse = await callGroqLLM(prompt)
+      try {
+        const topItems = JSON.parse(llmResponse)
+        return NextResponse.json({ topItems })
+      } catch (parseError) {
+        return NextResponse.json({ error: 'Failed to parse LLM response', raw: llmResponse }, { status: 500 })
+      }
+    }
 
     const prompt = `Based on the following ${period} sales data, predict future sales:
 

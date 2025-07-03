@@ -122,10 +122,10 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
             <li>
               <Link
                 href="/dashboard/sales-report"
-                className={`flex items-center p-2 rounded-lg ${title === "Sales Report" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
+                className={`flex items-center p-2 rounded-lg ${title === "Reports" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
               >
                 <TrendingUp className="mr-3 h-5 w-5" />
-                Sales Report
+                Reports
               </Link>
             </li>
             <li>
@@ -213,10 +213,10 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
               <li>
                 <Link
                   href="/dashboard/sales-report"
-                  className={`flex items-center p-2 rounded-lg ${title === "Sales Report" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
+                  className={`flex items-center p-2 rounded-lg ${title === "Reports" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
                 >
                   <TrendingUp className="mr-3 h-5 w-5" />
-                  Sales Report
+                  Reports
                 </Link>
               </li>
               <li>

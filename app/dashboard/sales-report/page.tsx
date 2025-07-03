@@ -1,13 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { TrendingUp, Calendar, Download, Sparkles } from "lucide-react"
+import { TrendingUp, Calendar, Download, Sparkles, Star } from "lucide-react"
 import {
   Area,
   AreaChart,
@@ -23,13 +23,41 @@ import {
   YAxis,
 } from "recharts"
 
+// Add types for sales data, transactions, and predictions
+interface SalesData {
+  date?: string;
+  month?: string;
+  year?: string;
+  sales: number;
+  orders: number;
+  avgOrder: number;
+}
+interface Transaction {
+  timestamp: string;
+}
+interface Predictions {
+  nextDay?: { sales: number; confidence: number };
+  nextMonth?: { sales: number; confidence: number };
+  nextYear?: { sales: number; confidence: number };
+}
+
+// Add mock feedback for reviews tab
+interface Feedback {
+  name: string
+  rating: number
+  comment: string
+  date: string // ISO string
+}
+
 export default function SalesReportPage() {
-  const [reportPeriod, setReportPeriod] = useState("daily")
+  const [reportPeriod, setReportPeriod] = useState<string>("daily")
   const [isGeneratingPrediction, setIsGeneratingPrediction] = useState(false)
-  const [predictions, setPredictions] = useState(null)
+  const [predictions, setPredictions] = useState<Predictions | null>(null)
+  const [ratingFilter, setRatingFilter] = useState<string>("all")
+  const [timeFilter, setTimeFilter] = useState<string>("latest")
 
   // Sample sales data
-  const dailySalesData = [
+  const dailySalesData: SalesData[] = [
     { date: "2024-01-01", sales: 1200, orders: 45, avgOrder: 26.67 },
     { date: "2024-01-02", sales: 1350, orders: 52, avgOrder: 25.96 },
     { date: "2024-01-03", sales: 980, orders: 38, avgOrder: 25.79 },
@@ -39,7 +67,7 @@ export default function SalesReportPage() {
     { date: "2024-01-07", sales: 1950, orders: 72, avgOrder: 27.08 },
   ]
 
-  const monthlySalesData = [
+  const monthlySalesData: SalesData[] = [
     { month: "Jan", sales: 35000, orders: 1200, avgOrder: 29.17 },
     { month: "Feb", sales: 32000, orders: 1100, avgOrder: 29.09 },
     { month: "Mar", sales: 38000, orders: 1350, avgOrder: 28.15 },
@@ -48,7 +76,7 @@ export default function SalesReportPage() {
     { month: "Jun", sales: 48000, orders: 1700, avgOrder: 28.24 },
   ]
 
-  const yearlySalesData = [
+  const yearlySalesData: SalesData[] = [
     { year: "2021", sales: 420000, orders: 15000, avgOrder: 28.0 },
     { year: "2022", sales: 485000, orders: 17200, avgOrder: 28.2 },
     { year: "2023", sales: 520000, orders: 18500, avgOrder: 28.11 },
@@ -62,6 +90,15 @@ export default function SalesReportPage() {
     { name: "Chocolate Cake", sales: 156, revenue: 1402.44 },
     { name: "Margherita Pizza", sales: 134, revenue: 1943.0 },
     { name: "Pasta Carbonara", sales: 98, revenue: 1661.1 },
+  ]
+
+  // Add mock feedback for reviews tab
+  const mockFeedback: Feedback[] = [
+    { name: "Alice", rating: 5, comment: "Amazing food and service!", date: "2024-06-01T14:30:00" },
+    { name: "Bob", rating: 3, comment: "It was okay, but the wait was long.", date: "2024-06-02T12:10:00" },
+    { name: "Charlie", rating: 4, comment: "Great atmosphere and tasty menu.", date: "2024-06-03T18:45:00" },
+    { name: "Dana", rating: 2, comment: "Food was cold when served.", date: "2024-06-04T09:20:00" },
+    { name: "Eve", rating: 5, comment: "Best restaurant in town!", date: "2024-06-05T20:00:00" },
   ]
 
   const generatePredictions = async () => {
@@ -81,7 +118,7 @@ export default function SalesReportPage() {
       })
 
       const data = await response.json()
-      setPredictions(data.predictions)
+      setPredictions(data.predictions as Predictions)
     } catch (error) {
       console.error("Error generating predictions:", error)
       // Fallback predictions
@@ -95,7 +132,7 @@ export default function SalesReportPage() {
     setIsGeneratingPrediction(false)
   }
 
-  const getCurrentData = () => {
+  const getCurrentData = (): SalesData[] => {
     switch (reportPeriod) {
       case "daily":
         return dailySalesData
@@ -108,7 +145,7 @@ export default function SalesReportPage() {
     }
   }
 
-  const getDataKey = () => {
+  const getDataKey = (): string => {
     switch (reportPeriod) {
       case "daily":
         return "date"
@@ -124,14 +161,88 @@ export default function SalesReportPage() {
   const currentData = getCurrentData()
   const dataKey = getDataKey()
 
+  // Add mock rush hour data and a function to aggregate by hour
+  const mockTransactions: Transaction[] = [
+    { timestamp: "2024-06-01T08:15:00" },
+    { timestamp: "2024-06-01T09:30:00" },
+    { timestamp: "2024-06-01T09:45:00" },
+    { timestamp: "2024-06-01T10:00:00" },
+    { timestamp: "2024-06-01T12:10:00" },
+    { timestamp: "2024-06-01T12:20:00" },
+    { timestamp: "2024-06-01T12:45:00" },
+    { timestamp: "2024-06-01T13:00:00" },
+    { timestamp: "2024-06-01T13:15:00" },
+    { timestamp: "2024-06-01T14:00:00" },
+    { timestamp: "2024-06-01T14:30:00" },
+    { timestamp: "2024-06-01T15:00:00" },
+    { timestamp: "2024-06-01T18:00:00" },
+    { timestamp: "2024-06-01T18:15:00" },
+    { timestamp: "2024-06-01T19:00:00" },
+    { timestamp: "2024-06-01T19:30:00" },
+    { timestamp: "2024-06-01T20:00:00" },
+    { timestamp: "2024-06-01T20:15:00" },
+  ]
+
+  // Function to aggregate transactions by hour
+  function getRushHourData(transactions: Transaction[]): { hour: string; count: number }[] {
+    const hourCounts = Array(24).fill(0)
+    transactions.forEach((tx: Transaction) => {
+      const hour = new Date(tx.timestamp).getHours()
+      hourCounts[hour]++
+    })
+    return hourCounts.map((count, hour) => ({ hour: `${hour}:00`, count }))
+  }
+  const rushHourData = getRushHourData(mockTransactions)
+
+  // Mock menu sales data for prediction
+  const mockMenuSales = [
+    { name: "Grilled Salmon", sales: 245, revenue: 6125.5 },
+    { name: "Caesar Salad", sales: 189, revenue: 2453.11 },
+    { name: "Chocolate Cake", sales: 156, revenue: 1402.44 },
+    { name: "Margherita Pizza", sales: 134, revenue: 1943.0 },
+    { name: "Pasta Carbonara", sales: 98, revenue: 1661.1 },
+  ]
+
+  const [topMenuPrediction, setTopMenuPrediction] = useState<any[] | null>(null)
+  const [isPredictingTopMenu, setIsPredictingTopMenu] = useState(false)
+  const [predictionError, setPredictionError] = useState<string | null>(null)
+
+  async function fetchTopMenuPrediction() {
+    setIsPredictingTopMenu(true)
+    setPredictionError(null)
+    try {
+      const res = await fetch("/api/generate-predictions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ menuSales: mockMenuSales, period: reportPeriod }),
+      })
+      const data = await res.json()
+      if (data.topItems) {
+        setTopMenuPrediction(data.topItems)
+      } else {
+        setPredictionError(data.error || "No prediction returned")
+        setTopMenuPrediction(null)
+      }
+    } catch (err) {
+      setPredictionError("Failed to fetch prediction")
+      setTopMenuPrediction(null)
+    }
+    setIsPredictingTopMenu(false)
+  }
+
+  useEffect(() => {
+    fetchTopMenuPrediction()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportPeriod, JSON.stringify(mockMenuSales)])
+
   return (
-    <DashboardLayout title="Sales Report">
+    <DashboardLayout title="Reports">
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <h2 className="text-2xl font-bold text-navy-blue">Sales Report</h2>
-            <p className="text-gray-600">Analyze your restaurant's sales performance and trends</p>
+            <h2 className="text-2xl font-bold text-navy-blue">Reports</h2>
+            <p className="text-gray-600">Analyze your restaurant's sales performance, rush hours, and more</p>
           </div>
           <div className="flex gap-2">
             <Select value={reportPeriod} onValueChange={setReportPeriod}>
@@ -248,6 +359,7 @@ export default function SalesReportPage() {
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="trends">Trends</TabsTrigger>
             <TabsTrigger value="products">Top Products</TabsTrigger>
+            <TabsTrigger value="reviews">Reviews</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4">
@@ -339,9 +451,35 @@ export default function SalesReportPage() {
               <CardHeader>
                 <CardTitle>Top Selling Items</CardTitle>
                 <CardDescription>Best performing menu items by sales volume and revenue</CardDescription>
+                <div className="flex gap-2 mt-4">
+                  <Button onClick={fetchTopMenuPrediction} disabled={isPredictingTopMenu} variant="outline">
+                    {isPredictingTopMenu ? "Predicting..." : "Refresh Prediction"}
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
+                  {isPredictingTopMenu && <div className="text-blue-600">Predicting top sellers...</div>}
+                  {predictionError && <div className="text-red-600">{predictionError}</div>}
+                  {topMenuPrediction && (
+                    <div className="mb-4">
+                      <h3 className="font-semibold text-lg mb-2">LLM Predicted Top Sellers</h3>
+                      <ul className="space-y-2">
+                        {topMenuPrediction.map((item, idx) => (
+                          <li key={item.name} className="border rounded p-3 bg-white">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-navy-blue">{idx + 1}.</span>
+                              <span className="font-semibold">{item.name}</span>
+                              <span className="ml-2 text-xs text-gray-500">Predicted Sales: {item.predictedSales}</span>
+                            </div>
+                            <div className="text-gray-700 text-sm mt-1">{item.reason}</div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {/* Existing topItems list below */}
+                  <h3 className="font-semibold text-lg mb-2">Historical Top Sellers</h3>
                   {topItems.map((item, index) => (
                     <div key={item.name} className="flex items-center justify-between p-4 border rounded-lg">
                       <div className="flex items-center gap-4">
@@ -349,21 +487,109 @@ export default function SalesReportPage() {
                           {index + 1}
                         </div>
                         <div>
-                          <h3 className="font-semibold">{item.name}</h3>
-                          <p className="text-sm text-gray-600">{item.sales} orders</p>
+                          <div className="font-semibold">{item.name}</div>
+                          <div className="text-xs text-gray-500">{item.sales} sales, ${item.revenue.toLocaleString()}</div>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-bold">${item.revenue.toFixed(2)}</p>
-                        <p className="text-sm text-gray-600">Revenue</p>
-                      </div>
+                      <div className="font-bold text-lg text-navy-blue">#{index + 1}</div>
                     </div>
                   ))}
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
+
+          <TabsContent value="reviews" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Customer Feedback & Reviews</CardTitle>
+                <div className="flex gap-4 mt-4">
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Filter by Rating</label>
+                    <Select value={ratingFilter} onValueChange={setRatingFilter}>
+                      <SelectTrigger className="w-[120px]">
+                        <SelectValue placeholder="All Ratings" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        {[5, 4, 3, 2, 1].map(r => (
+                          <SelectItem key={r} value={String(r)}>{r} Star{r > 1 ? "s" : ""}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Sort by</label>
+                    <Select value={timeFilter} onValueChange={setTimeFilter}>
+                      <SelectTrigger className="w-[120px]">
+                        <SelectValue placeholder="Sort by" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="latest">Latest</SelectItem>
+                        <SelectItem value="oldest">Oldest</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {(mockFeedback
+                  .filter(fb => ratingFilter === "all" || fb.rating === Number(ratingFilter))
+                  .sort((a, b) =>
+                    timeFilter === "latest"
+                      ? new Date(b.date).getTime() - new Date(a.date).getTime()
+                      : new Date(a.date).getTime() - new Date(b.date).getTime()
+                  )).length === 0 ? (
+                  <div className="text-center text-gray-500 py-8">No feedback found for this filter.</div>
+                ) : (
+                  <ul className="space-y-4">
+                    {mockFeedback
+                      .filter(fb => ratingFilter === "all" || fb.rating === Number(ratingFilter))
+                      .sort((a, b) =>
+                        timeFilter === "latest"
+                          ? new Date(b.date).getTime() - new Date(a.date).getTime()
+                          : new Date(a.date).getTime() - new Date(b.date).getTime()
+                      )
+                      .map((fb, idx) => (
+                        <li key={idx} className="border rounded p-4 bg-white shadow-sm">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-semibold text-navy-blue">{fb.name}</span>
+                            <span className="flex gap-0.5">
+                              {[1, 2, 3, 4, 5].map(star => (
+                                <Star key={star} className="h-4 w-4" fill={star <= fb.rating ? "#facc15" : "none"} stroke="#facc15" />
+                              ))}
+                            </span>
+                            <span className="ml-auto text-xs text-gray-400">{new Date(fb.date).toLocaleString()}</span>
+                          </div>
+                          <div className="text-gray-700">{fb.comment}</div>
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
+
+        {/* Rush Hour Data Section */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Rush Hour Data</CardTitle>
+            <CardDescription>See when your restaurant is busiest based on transaction volume</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={rushHourData} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="hour" />
+                <YAxis allowDecimals={false} />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="count" fill="#2563eb" name="Transactions" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
       </div>
     </DashboardLayout>
   )

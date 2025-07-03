@@ -16,6 +16,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Plus, Edit, Trash2, Sparkles, Package, Search, RefreshCw } from "lucide-react"
 
+// Add types for editing and deleting
+interface MenuItem {
+  id: number;
+  name: string;
+  description: string;
+  price: number;
+  category: string;
+  image: string;
+  available: boolean;
+}
+interface FoodPack {
+  id: number;
+  name: string;
+  description: string;
+  items: string[];
+  price: number;
+  type: string;
+  generated: boolean;
+}
+
 export default function MenuManagementPage() {
   const [isAddItemOpen, setIsAddItemOpen] = useState(false)
   const [isAddPackOpen, setIsAddPackOpen] = useState(false)
@@ -24,7 +44,7 @@ export default function MenuManagementPage() {
   const [selectedCategory, setSelectedCategory] = useState("all")
 
   // Sample menu items
-  const [menuItems, setMenuItems] = useState([
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([
     {
       id: 1,
       name: "Grilled Salmon",
@@ -64,7 +84,7 @@ export default function MenuManagementPage() {
   ])
 
   // Sample food packs
-  const [foodPacks, setFoodPacks] = useState([
+  const [foodPacks, setFoodPacks] = useState<FoodPack[]>([
     {
       id: 1,
       name: "Lunch Pack 1",
@@ -85,20 +105,24 @@ export default function MenuManagementPage() {
     },
   ])
 
-  const [newItem, setNewItem] = useState({
+  const [newItem, setNewItem] = useState<MenuItem>({
+    id: 0,
     name: "",
     description: "",
-    price: "",
+    price: 0,
     category: "",
     image: "",
+    available: true,
   })
 
-  const [newPack, setNewPack] = useState({
+  const [newPack, setNewPack] = useState<FoodPack>({
+    id: 0,
     name: "",
     description: "",
     items: [],
-    price: "",
+    price: 0,
     type: "Pack 1",
+    generated: false,
   })
 
   const categories = ["all", "Main Course", "Salad", "Dessert", "Beverage", "Appetizer"]
@@ -152,26 +176,26 @@ export default function MenuManagementPage() {
   const handleAddItem = (e: React.FormEvent) => {
     e.preventDefault()
     const item = {
-      id: Date.now(),
       ...newItem,
-      price: Number.parseFloat(newItem.price),
+      id: Date.now(),
+      price: Number(newItem.price),
       available: true,
     }
     setMenuItems((prev) => [...prev, item])
-    setNewItem({ name: "", description: "", price: "", category: "", image: "" })
+    setNewItem({ id: 0, name: "", description: "", price: 0, category: "", image: "", available: true })
     setIsAddItemOpen(false)
   }
 
   const handleAddPack = (e: React.FormEvent) => {
     e.preventDefault()
     const pack = {
-      id: Date.now(),
       ...newPack,
-      price: Number.parseFloat(newPack.price),
+      id: Date.now(),
+      price: Number(newPack.price),
       generated: false,
     }
     setFoodPacks((prev) => [...prev, pack])
-    setNewPack({ name: "", description: "", items: [], price: "", type: "Pack 1" })
+    setNewPack({ id: 0, name: "", description: "", items: [], price: 0, type: "Pack 1", generated: false })
     setIsAddPackOpen(false)
   }
 
@@ -182,6 +206,14 @@ export default function MenuManagementPage() {
     const matchesCategory = selectedCategory === "all" || item.category === selectedCategory
     return matchesSearch && matchesCategory
   })
+
+  // Add state for editing and deleting
+  const [editingItem, setEditingItem] = useState<MenuItem | null>(null)
+  const [isEditItemOpen, setIsEditItemOpen] = useState(false)
+  const [editingPack, setEditingPack] = useState<FoodPack | null>(null)
+  const [isEditPackOpen, setIsEditPackOpen] = useState(false)
+  const [deletingPack, setDeletingPack] = useState<FoodPack | null>(null)
+  const [isDeletePackOpen, setIsDeletePackOpen] = useState(false)
 
   return (
     <DashboardLayout title="Menu Management">
@@ -285,16 +317,22 @@ export default function MenuManagementPage() {
                         <TableCell>${item.price.toFixed(2)}</TableCell>
                         <TableCell>
                           <Badge className={item.available ? "bg-green-500" : "bg-red-500"}>
-                            {item.available ? "Available" : "Unavailable"}
+                            {item.available ? "Available" : "Sold Out"}
                           </Badge>
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-2">
-                            <Button variant="outline" size="sm">
+                            <Button variant="outline" size="sm" onClick={() => { setEditingItem(item); setIsEditItemOpen(true); }}>
                               <Edit className="h-4 w-4" />
                             </Button>
-                            <Button variant="outline" size="sm">
-                              <Trash2 className="h-4 w-4" />
+                            <Button
+                              variant={item.available ? "destructive" : "default"}
+                              size="sm"
+                              onClick={() => {
+                                setMenuItems((prev) => prev.map((m) => m.id === item.id ? { ...m, available: !m.available } : m))
+                              }}
+                            >
+                              {item.available ? "Mark Sold Out" : "Mark Available"}
                             </Button>
                           </div>
                         </TableCell>
@@ -345,10 +383,10 @@ export default function MenuManagementPage() {
                           <div className="flex justify-between items-center pt-2">
                             <span className="text-lg font-bold">${pack.price.toFixed(2)}</span>
                             <div className="flex gap-2">
-                              <Button variant="outline" size="sm">
+                              <Button variant="outline" size="sm" onClick={() => { setEditingPack(pack); setIsEditPackOpen(true); }}>
                                 <Edit className="h-4 w-4" />
                               </Button>
-                              <Button variant="outline" size="sm">
+                              <Button variant="outline" size="sm" onClick={() => { setDeletingPack(pack); setIsDeletePackOpen(true); }}>
                                 <Trash2 className="h-4 w-4" />
                               </Button>
                             </div>
@@ -416,7 +454,7 @@ export default function MenuManagementPage() {
                 type="number"
                 step="0.01"
                 value={newItem.price}
-                onChange={(e) => setNewItem({ ...newItem, price: e.target.value })}
+                onChange={(e) => setNewItem({ ...newItem, price: Number(e.target.value) })}
                 required
               />
             </div>
@@ -489,8 +527,8 @@ export default function MenuManagementPage() {
               id="packPrice"
               type="number"
               step="0.01"
-              value={newPack.price}
-              onChange={(e) => setNewPack({ ...newPack, price: e.target.value })}
+              value={Number(newPack.price) || 0}
+              onChange={e => setNewPack({ ...newPack, price: Number(e.target.value) })}
               required
             />
           </div>
@@ -503,6 +541,184 @@ export default function MenuManagementPage() {
             </Button>
           </div>
         </form>
+      </Popup>
+
+      {/* Edit Item Popup */}
+      <Popup
+        isOpen={isEditItemOpen}
+        onClose={() => setIsEditItemOpen(false)}
+        title="Edit Menu Item"
+        description="Edit the details of this menu item"
+        size="lg"
+      >
+        {editingItem && (
+          <form
+            onSubmit={e => {
+              e.preventDefault()
+              setMenuItems(prev => prev.map(m => m.id === editingItem.id ? editingItem : m))
+              setIsEditItemOpen(false)
+            }}
+            className="space-y-4"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="editItemName">Item Name</Label>
+                <Input
+                  id="editItemName"
+                  value={editingItem.name}
+                  onChange={e => setEditingItem({ ...editingItem!, name: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editItemCategory">Category</Label>
+                <Select value={editingItem.category} onValueChange={value => setEditingItem({ ...editingItem!, category: value })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.slice(1).map(category => (
+                      <SelectItem key={category} value={category}>{category}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editItemDescription">Description</Label>
+              <Textarea
+                id="editItemDescription"
+                value={editingItem.description}
+                onChange={e => setEditingItem({ ...editingItem!, description: e.target.value })}
+                required
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="editItemPrice">Price ($)</Label>
+                <Input
+                  id="editItemPrice"
+                  type="number"
+                  step="0.01"
+                  value={editingItem.price}
+                  onChange={e => setEditingItem({ ...editingItem!, price: Number(e.target.value) })}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editItemImage">Image URL</Label>
+                <Input
+                  id="editItemImage"
+                  value={editingItem.image}
+                  onChange={e => setEditingItem({ ...editingItem!, image: e.target.value })}
+                  placeholder="/placeholder.svg?height=100&width=100"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setIsEditItemOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" className="bg-navy-blue hover:bg-navy-blue-700">
+                Save Changes
+              </Button>
+            </div>
+          </form>
+        )}
+      </Popup>
+
+      {/* Edit Pack Popup */}
+      <Popup
+        isOpen={isEditPackOpen}
+        onClose={() => setIsEditPackOpen(false)}
+        title="Edit Food Pack"
+        description="Edit the details of this food pack"
+        size="lg"
+      >
+        {editingPack && (
+          <form
+            onSubmit={e => {
+              e.preventDefault()
+              setFoodPacks(prev => prev.map(p => p.id === editingPack.id ? editingPack : p))
+              setIsEditPackOpen(false)
+            }}
+            className="space-y-4"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="editPackName">Pack Name</Label>
+                <Input
+                  id="editPackName"
+                  value={editingPack.name}
+                  onChange={e => setEditingPack({ ...editingPack!, name: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="editPackType">Pack Type</Label>
+                <Select value={editingPack.type} onValueChange={value => setEditingPack({ ...editingPack!, type: value })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Pack 1">Pack 1 (1 food + 1 drink)</SelectItem>
+                    <SelectItem value="Pack 2">Pack 2 (1 food + 1 drink + 1 snack)</SelectItem>
+                    <SelectItem value="Pack 3">Pack 3 (Most paired items)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editPackDescription">Description</Label>
+              <Textarea
+                id="editPackDescription"
+                value={editingPack.description}
+                onChange={e => setEditingPack({ ...editingPack!, description: e.target.value })}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editPackPrice">Price ($)</Label>
+              <Input
+                id="editPackPrice"
+                type="number"
+                step="0.01"
+                value={editingPack.price}
+                onChange={e => setEditingPack({ ...editingPack!, price: Number(e.target.value) })}
+                required
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setIsEditPackOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" className="bg-navy-blue hover:bg-navy-blue-700">
+                Save Changes
+              </Button>
+            </div>
+          </form>
+        )}
+      </Popup>
+
+      {/* Delete Pack Confirmation Popup */}
+      <Popup
+        isOpen={isDeletePackOpen}
+        onClose={() => setIsDeletePackOpen(false)}
+        title="Delete Food Pack"
+        description="Are you sure you want to delete this food pack? This action cannot be undone."
+        size="sm"
+      >
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => setIsDeletePackOpen(false)}>
+            Cancel
+          </Button>
+          <Button type="button" className="bg-red-600 hover:bg-red-700" onClick={() => {
+            setFoodPacks(prev => prev.filter(p => p.id !== deletingPack?.id))
+            setIsDeletePackOpen(false)
+          }}>
+            Delete
+          </Button>
+        </div>
       </Popup>
     </DashboardLayout>
   )
