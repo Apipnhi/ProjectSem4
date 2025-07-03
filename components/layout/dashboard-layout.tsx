@@ -103,6 +103,15 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
             </li>
             <li>
               <Link
+                href="/dashboard/stock"
+                className={`flex items-center p-2 rounded-lg ${title === "Stock Management" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
+              >
+                <ShoppingBag className="mr-3 h-5 w-5" />
+                Stock Management
+              </Link>
+            </li>
+            <li>
+              <Link
                 href="/dashboard/transactions"
                 className={`flex items-center p-2 rounded-lg ${title === "Transactions" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
               >
@@ -181,6 +190,15 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                 >
                   <ShoppingBag className="mr-3 h-5 w-5" />
                   Menu Management
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/dashboard/stock"
+                  className={`flex items-center p-2 rounded-lg ${title === "Stock Management" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
+                >
+                  <ShoppingBag className="mr-3 h-5 w-5" />
+                  Stock Management
                 </Link>
               </li>
               <li>

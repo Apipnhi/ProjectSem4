@@ -13,6 +13,8 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 export default function OrdersManagementPage() {
   const [selectedTab, setSelectedTab] = useState("all")
+  const [searchTerm, setSearchTerm] = useState("")
+  const [orderType, setOrderType] = useState("all")
 
   // Sample orders data
   const orders = [
@@ -158,10 +160,10 @@ export default function OrdersManagementPage() {
         <CardContent>
           <div className="flex flex-col md:flex-row gap-4 mb-6">
             <div className="flex-1">
-              <Input placeholder="Search orders..." />
+              <Input placeholder="Search orders..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
             </div>
             <div className="flex gap-2">
-              <Select defaultValue="all">
+              <Select value={orderType} onValueChange={setOrderType}>
                 <SelectTrigger className="w-[180px]">
                   <SelectValue placeholder="Order Type" />
                 </SelectTrigger>
@@ -175,7 +177,11 @@ export default function OrdersManagementPage() {
               <Button variant="outline" size="icon">
                 <Filter className="h-4 w-4" />
               </Button>
-              <Button variant="outline" size="icon">
+              <Button variant="outline" size="icon" onClick={() => {
+                setSearchTerm("");
+                setOrderType("all");
+                setSelectedTab("all");
+              }}>
                 <RefreshCw className="h-4 w-4" />
               </Button>
             </div>

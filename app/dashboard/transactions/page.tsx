@@ -9,11 +9,14 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Search, RefreshCw, CreditCard, Banknote, Smartphone, Eye } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 
 export default function TransactionsPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedStatus, setSelectedStatus] = useState("all")
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("all")
+  const [viewModalOpen, setViewModalOpen] = useState(false)
+  const [viewingTransaction, setViewingTransaction] = useState<typeof transactions[0] | null>(null)
 
   // Sample transactions data
   const transactions = [
@@ -175,7 +178,11 @@ export default function TransactionsPage() {
                   <SelectItem value="digital">Digital</SelectItem>
                 </SelectContent>
               </Select>
-              <Button variant="outline" size="icon">
+              <Button variant="outline" size="icon" onClick={() => {
+                setSearchTerm("");
+                setSelectedStatus("all");
+                setSelectedPaymentMethod("all");
+              }}>
                 <RefreshCw className="h-4 w-4" />
               </Button>
             </div>
@@ -209,7 +216,7 @@ export default function TransactionsPage() {
                     <TableCell>{getStatusBadge(transaction.status)}</TableCell>
                     <TableCell>{new Date(transaction.timestamp).toLocaleString()}</TableCell>
                     <TableCell>
-                      <Button variant="outline" size="sm">
+                      <Button variant="outline" size="sm" onClick={() => { setViewingTransaction(transaction); setViewModalOpen(true); }}>
                         <Eye className="h-4 w-4 mr-1" />
                         View
                       </Button>
@@ -260,6 +267,37 @@ export default function TransactionsPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* View Transaction Modal */}
+        <Dialog open={viewModalOpen} onOpenChange={setViewModalOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Transaction Details</DialogTitle>
+            </DialogHeader>
+            {viewingTransaction && (
+              <div className="space-y-2">
+                <div><span className="font-semibold">Transaction ID:</span> {viewingTransaction.id}</div>
+                <div><span className="font-semibold">Order ID:</span> {viewingTransaction.orderId}</div>
+                <div><span className="font-semibold">Customer:</span> {viewingTransaction.customer}</div>
+                <div><span className="font-semibold">Amount:</span> ${viewingTransaction.amount.toFixed(2)}</div>
+                <div><span className="font-semibold">Payment Method:</span> <span className="capitalize">{viewingTransaction.paymentMethod}</span></div>
+                <div><span className="font-semibold">Status:</span> {getStatusBadge(viewingTransaction.status)}</div>
+                <div><span className="font-semibold">Date & Time:</span> {new Date(viewingTransaction.timestamp).toLocaleString()}</div>
+                <div>
+                  <span className="font-semibold">Items:</span>
+                  <ul className="list-disc list-inside ml-4">
+                    {viewingTransaction.items.map((item, idx) => (
+                      <li key={idx}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setViewModalOpen(false)}>Close</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   )

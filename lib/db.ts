@@ -25,3 +25,8 @@ export async function query(sql: string, params: any[] = []) {
     throw error
   }
 }
+
+export async function updateStockItem(id: number, data: any) {
+  // TODO: Implement actual DB update logic
+  return { success: true, id, ...data }
+}
