@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { callGroqLLM } from '@/lib/utils'
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY
 
@@ -9,7 +10,7 @@ export async function POST(request: Request) {
     const prompt = `Based on the following menu items, generate 3 food pack combinations:
 
 Menu Items:
-${menuItems.map((item) => `- ${item.name} (${item.category}) - $${item.price}`).join("\n")}
+${menuItems.map((item: any) => `- ${item.name} (${item.category}) - $${item.price}`).join("\n")}
 
 Please create:
 1. Pack 1: 1 main food item + 1 drink
@@ -24,61 +25,52 @@ For each pack, provide:
 
 Format as JSON array with objects containing: name, description, items (array), price, type`
 
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${GROQ_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        messages: [
+    try {
+      const llmResponse = await callGroqLLM(prompt)
+      console.log("LLM Response for pack generation:", llmResponse)
+      
+      // Try to extract JSON from the response
+      const jsonMatch = llmResponse.match(/\[[\s\S]*\]/)
+      const jsonString = jsonMatch ? jsonMatch[0] : llmResponse
+      
+      const generatedPacks = JSON.parse(jsonString)
+      const packs = generatedPacks.map((pack: any, index: number) => ({
+        id: Date.now() + index,
+        name: pack.name,
+        description: pack.description,
+        items: pack.items,
+        price: pack.price,
+        type: pack.type || `Pack ${index + 1}`,
+        generated: true,
+      }))
+
+      return NextResponse.json({ packs })
+    } catch (parseError) {
+      console.error("Error parsing AI response:", parseError)
+      // Return fallback packs
+      return NextResponse.json({
+        packs: [
           {
-            role: "user",
-            content: prompt,
+            id: Date.now() + 1,
+            name: "AI Lunch Special",
+            description: "Perfect lunch combination with main course and beverage",
+            items: ["Grilled Salmon", "Coca Cola"],
+            price: 18.99,
+            type: "Pack 1",
+            generated: true,
+          },
+          {
+            id: Date.now() + 2,
+            name: "AI Dinner Combo",
+            description: "Complete dinner experience with dessert",
+            items: ["Caesar Salad", "Coca Cola", "Chocolate Cake"],
+            price: 22.99,
+            type: "Pack 2",
+            generated: true,
           },
         ],
-        model: "mixtral-8x7b-32768",
-        temperature: 0.7,
-        max_tokens: 1000,
-      }),
-    })
-
-    const data = await response.json()
-
-    if (data.choices && data.choices[0]) {
-      try {
-        const generatedPacks = JSON.parse(data.choices[0].message.content)
-        const packs = generatedPacks.map((pack: any, index: number) => ({
-          id: Date.now() + index,
-          name: pack.name,
-          description: pack.description,
-          items: pack.items,
-          price: pack.price,
-          type: pack.type || `Pack ${index + 1}`,
-          generated: true,
-        }))
-
-        return NextResponse.json({ packs })
-      } catch (parseError) {
-        console.error("Error parsing AI response:", parseError)
-        // Return fallback packs
-        return NextResponse.json({
-          packs: [
-            {
-              id: Date.now() + 1,
-              name: "AI Lunch Special",
-              description: "Perfect lunch combination",
-              items: ["Main Course", "Beverage"],
-              price: 18.99,
-              type: "Pack 1",
-              generated: true,
-            },
-          ],
-        })
-      }
+      })
     }
-
-    return NextResponse.json({ error: "Failed to generate packs" }, { status: 500 })
   } catch (error) {
     console.error("Error generating packs:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

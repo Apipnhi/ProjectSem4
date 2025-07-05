@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { TrendingUp, Calendar, Download, Sparkles, Star } from "lucide-react"
+import { TrendingUp, Calendar, Download, Sparkles, Star, CheckCircle, Clock, Pause, Play } from "lucide-react"
 import {
   Area,
   AreaChart,
@@ -49,12 +49,42 @@ interface Feedback {
   date: string // ISO string
 }
 
+// Add types for promotions
+interface Promotion {
+  type: string
+  description: string
+  reasoning: string
+  estimatedImpact: string
+  details?: string
+}
+
+interface AppliedPromotion extends Promotion {
+  id: string
+  appliedAt: string
+  status: 'active' | 'paused' | 'completed'
+  startDate: string
+  endDate?: string
+  performance?: {
+    orders: number
+    revenue: number
+    conversionRate: number
+  }
+}
+
 export default function SalesReportPage() {
   const [reportPeriod, setReportPeriod] = useState<string>("daily")
   const [isGeneratingPrediction, setIsGeneratingPrediction] = useState(false)
   const [predictions, setPredictions] = useState<Predictions | null>(null)
   const [ratingFilter, setRatingFilter] = useState<string>("all")
   const [timeFilter, setTimeFilter] = useState<string>("latest")
+  
+  // Promotion states
+  const [promoRecommendations, setPromoRecommendations] = useState<Promotion[] | null>(null)
+  const [appliedPromotions, setAppliedPromotions] = useState<AppliedPromotion[]>([])
+  const [isGeneratingPromos, setIsGeneratingPromos] = useState(false)
+  const [isApplyingPromo, setIsApplyingPromo] = useState<string | null>(null)
+  const [promoError, setPromoError] = useState<string | null>(null)
+  const [applySuccess, setApplySuccess] = useState<string | null>(null)
 
   // Sample sales data
   const dailySalesData: SalesData[] = [
@@ -235,6 +265,140 @@ export default function SalesReportPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportPeriod, JSON.stringify(mockMenuSales)])
 
+
+
+  async function fetchPromoRecommendations() {
+    setIsGeneratingPromos(true)
+    setPromoError(null)
+    try {
+      const res = await fetch("/api/generate-predictions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          menuSales: mockMenuSales, 
+          period: reportPeriod,
+          promoAnalysis: true 
+        }),
+      })
+      const data = await res.json()
+      if (data.promos) {
+        setPromoRecommendations(data.promos)
+      } else {
+        setPromoError(data.error || "No promo recommendations returned")
+        setPromoRecommendations(null)
+      }
+    } catch (err) {
+      setPromoError("Failed to fetch promo recommendations")
+      setPromoRecommendations(null)
+    }
+    setIsGeneratingPromos(false)
+  }
+
+  useEffect(() => {
+    fetchPromoRecommendations()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportPeriod, JSON.stringify(mockMenuSales)])
+
+  // Function to apply a promotion
+  const applyPromotion = async (promotion: Promotion) => {
+    setIsApplyingPromo(promotion.description)
+    setApplySuccess(null)
+    
+    try {
+      const response = await fetch("/api/apply-promotion", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          promotion,
+          startDate: new Date().toISOString(),
+          endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days from now
+        }),
+      })
+
+      const data = await response.json()
+      
+      if (data.success) {
+        setAppliedPromotions(prev => [...prev, data.promotion])
+        setApplySuccess(data.message)
+        // Remove the applied promotion from recommendations
+        setPromoRecommendations(prev => prev?.filter(p => p.description !== promotion.description) || null)
+      } else {
+        setPromoError(data.error || "Failed to apply promotion")
+      }
+    } catch (error) {
+      console.error("Error applying promotion:", error)
+      setPromoError("Failed to apply promotion")
+    }
+    
+    setIsApplyingPromo(null)
+  }
+
+  // Function to update promotion status
+  const updatePromotionStatus = async (promotionId: string, status: 'active' | 'paused' | 'completed') => {
+    try {
+      const response = await fetch("/api/apply-promotion", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          promotionId,
+          status,
+        }),
+      })
+
+      const data = await response.json()
+      
+      if (data.success) {
+        setAppliedPromotions(prev => 
+          prev.map(p => p.id === promotionId ? { ...p, status } : p)
+        )
+        setApplySuccess(data.message)
+      } else {
+        setPromoError(data.error || "Failed to update promotion status")
+      }
+    } catch (error) {
+      console.error("Error updating promotion status:", error)
+      setPromoError("Failed to update promotion status")
+    }
+  }
+
+  // Function to fetch applied promotions
+  const fetchAppliedPromotions = async () => {
+    try {
+      const response = await fetch("/api/apply-promotion")
+      const data = await response.json()
+      
+      if (data.promotions) {
+        setAppliedPromotions(data.promotions)
+      }
+    } catch (error) {
+      console.error("Error fetching applied promotions:", error)
+    }
+  }
+
+  // Fetch applied promotions on component mount
+  useEffect(() => {
+    fetchAppliedPromotions()
+  }, [])
+
+  // Clear success/error messages after 5 seconds
+  useEffect(() => {
+    if (applySuccess) {
+      const timer = setTimeout(() => setApplySuccess(null), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [applySuccess])
+
+  useEffect(() => {
+    if (promoError) {
+      const timer = setTimeout(() => setPromoError(null), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [promoError])
+
   return (
     <DashboardLayout title="Reports">
       <div className="space-y-6">
@@ -360,6 +524,7 @@ export default function SalesReportPage() {
             <TabsTrigger value="trends">Trends</TabsTrigger>
             <TabsTrigger value="products">Top Products</TabsTrigger>
             <TabsTrigger value="reviews">Reviews</TabsTrigger>
+            <TabsTrigger value="promotions">Promotions</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4">
@@ -566,6 +731,159 @@ export default function SalesReportPage() {
                       ))}
                   </ul>
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="promotions" className="space-y-4">
+            {/* Success/Error Messages */}
+            {applySuccess && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5 text-green-600" />
+                  <span className="text-green-800">{applySuccess}</span>
+                </div>
+              </div>
+            )}
+            {promoError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <span className="text-red-800">{promoError}</span>
+              </div>
+            )}
+
+            {/* Applied Promotions */}
+            {appliedPromotions.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Active Promotions</CardTitle>
+                  <CardDescription>Currently running promotional campaigns</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {appliedPromotions.map((promotion) => (
+                      <div key={promotion.id} className="border rounded-lg p-4 bg-white">
+                        <div className="flex items-start justify-between mb-3">
+                          <div>
+                            <h4 className="font-semibold text-navy-blue">{promotion.type}</h4>
+                            <p className="text-sm text-gray-600">{promotion.description}</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge 
+                              className={
+                                promotion.status === 'active' ? 'bg-green-500' :
+                                promotion.status === 'paused' ? 'bg-yellow-500' :
+                                'bg-gray-500'
+                              }
+                            >
+                              {promotion.status}
+                            </Badge>
+                            <div className="flex gap-1">
+                              {promotion.status === 'active' && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => updatePromotionStatus(promotion.id, 'paused')}
+                                >
+                                  <Pause className="h-4 w-4" />
+                                </Button>
+                              )}
+                              {promotion.status === 'paused' && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => updatePromotionStatus(promotion.id, 'active')}
+                                >
+                                  <Play className="h-4 w-4" />
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => updatePromotionStatus(promotion.id, 'completed')}
+                              >
+                                <CheckCircle className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-xs text-gray-500 space-y-1">
+                          <div><strong>Applied:</strong> {new Date(promotion.appliedAt).toLocaleDateString()}</div>
+                          <div><strong>Start Date:</strong> {new Date(promotion.startDate).toLocaleDateString()}</div>
+                          {promotion.endDate && (
+                            <div><strong>End Date:</strong> {new Date(promotion.endDate).toLocaleDateString()}</div>
+                          )}
+                          {promotion.performance && (
+                            <div className="mt-2 pt-2 border-t">
+                              <strong>Performance:</strong> {promotion.performance.orders} orders, 
+                              ${promotion.performance.revenue.toLocaleString()} revenue
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Promotion Recommendations */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Promotion Recommendations</CardTitle>
+                <CardDescription>AI-powered suggestions for discounts, bundles, and promotional strategies</CardDescription>
+                <div className="flex gap-2 mt-4">
+                  <Button onClick={fetchPromoRecommendations} disabled={isGeneratingPromos} variant="outline">
+                    {isGeneratingPromos ? "Generating..." : "Refresh Promos"}
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {isGeneratingPromos && <div className="text-blue-600">Generating promotion recommendations...</div>}
+                  {promoRecommendations && promoRecommendations.length > 0 ? (
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {promoRecommendations.map((promo, idx) => (
+                        <Card key={idx} className="p-4">
+                          <div className="flex items-start justify-between mb-2">
+                            <h4 className="font-semibold text-navy-blue">{promo.type}</h4>
+                            <Badge className="bg-green-500">{promo.estimatedImpact}</Badge>
+                          </div>
+                          <p className="text-sm text-gray-600 mb-2">{promo.description}</p>
+                          <div className="text-xs text-gray-500 mb-3">
+                            <strong>Reasoning:</strong> {promo.reasoning}
+                          </div>
+                          {promo.details && (
+                            <div className="text-xs text-gray-500 mb-3">
+                              <strong>Details:</strong> {promo.details}
+                            </div>
+                          )}
+                          <Button
+                            onClick={() => applyPromotion(promo)}
+                            disabled={isApplyingPromo === promo.description}
+                            className="w-full bg-navy-blue hover:bg-navy-blue-700"
+                            size="sm"
+                          >
+                            {isApplyingPromo === promo.description ? (
+                              <>
+                                <Clock className="mr-2 h-4 w-4 animate-spin" />
+                                Applying...
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle className="mr-2 h-4 w-4" />
+                                Apply Promotion
+                              </>
+                            )}
+                          </Button>
+                        </Card>
+                      ))}
+                    </div>
+                  ) : promoRecommendations && promoRecommendations.length === 0 ? (
+                    <div className="text-center text-gray-500 py-8">
+                      All recommendations have been applied or no new recommendations available.
+                    </div>
+                  ) : null}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>

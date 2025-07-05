@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Popup } from "@/components/ui/popup"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Plus, Edit, Trash2, Sparkles, Package, Search, RefreshCw } from "lucide-react"
+import { Plus, Edit, Trash2, Sparkles, Package, Search, RefreshCw, TrendingUp, AlertTriangle, CheckCircle, ArrowUp, ArrowDown, Minus } from "lucide-react"
 
 // Add types for editing and deleting
 interface MenuItem {
@@ -34,6 +34,27 @@ interface FoodPack {
   price: number;
   type: string;
   generated: boolean;
+}
+
+// Define MenuTrend type
+interface MenuTrend {
+  trend: 'rising' | 'declining' | 'stable' | 'new'
+  itemName: string
+  currentSales: number
+  predictedSales: number
+  growthRate: number
+  reasoning: string
+  recommendations: string[]
+  category: string
+  seasonality?: string
+}
+
+interface TrendSummary {
+  totalTrends: number
+  risingTrends: number
+  decliningTrends: number
+  newOpportunities: number
+  estimatedRevenueImpact: number
 }
 
 export default function MenuManagementPage() {
@@ -207,6 +228,52 @@ export default function MenuManagementPage() {
     return matchesSearch && matchesCategory
   })
 
+  // Mock menu sales data for trend predictions
+  const mockMenuSales = [
+    { name: "Grilled Salmon", sales: 245, revenue: 6125.5 },
+    { name: "Caesar Salad", sales: 189, revenue: 2453.11 },
+    { name: "Chocolate Cake", sales: 156, revenue: 1402.44 },
+    { name: "Margherita Pizza", sales: 134, revenue: 1943.0 },
+    { name: "Pasta Carbonara", sales: 98, revenue: 1661.1 },
+  ]
+
+  // Function to generate menu trends
+  const generateMenuTrends = async () => {
+    setIsGeneratingTrends(true)
+    setTrendError(null)
+    
+    try {
+      const response = await fetch("/api/generate-menu-trends", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          menuSales: mockMenuSales,
+          period: trendPeriod,
+        }),
+      })
+
+      const data = await response.json()
+      
+      if (data.trends) {
+        setMenuTrends(data.trends)
+        setTrendSummary(data.summary)
+      } else {
+        setTrendError(data.error || "Failed to generate menu trends")
+        setMenuTrends(null)
+        setTrendSummary(null)
+      }
+    } catch (error) {
+      console.error("Error generating menu trends:", error)
+      setTrendError("Failed to generate menu trends")
+      setMenuTrends(null)
+      setTrendSummary(null)
+    }
+    
+    setIsGeneratingTrends(false)
+  }
+
   // Add state for editing and deleting
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null)
   const [isEditItemOpen, setIsEditItemOpen] = useState(false)
@@ -214,6 +281,18 @@ export default function MenuManagementPage() {
   const [isEditPackOpen, setIsEditPackOpen] = useState(false)
   const [deletingPack, setDeletingPack] = useState<FoodPack | null>(null)
   const [isDeletePackOpen, setIsDeletePackOpen] = useState(false)
+
+  // Menu trend states
+  const [menuTrends, setMenuTrends] = useState<MenuTrend[] | null>(null)
+  const [trendSummary, setTrendSummary] = useState<TrendSummary | null>(null)
+  const [isGeneratingTrends, setIsGeneratingTrends] = useState(false)
+  const [trendError, setTrendError] = useState<string | null>(null)
+  const [trendPeriod, setTrendPeriod] = useState<string>("month")
+
+  // Generate trends on component mount
+  useEffect(() => {
+    generateMenuTrends()
+  }, [trendPeriod])
 
   return (
     <DashboardLayout title="Menu Management">
@@ -244,6 +323,7 @@ export default function MenuManagementPage() {
           <TabsList>
             <TabsTrigger value="items">Menu Items</TabsTrigger>
             <TabsTrigger value="packs">Food Packs</TabsTrigger>
+            <TabsTrigger value="trends">AI Trends</TabsTrigger>
           </TabsList>
 
           <TabsContent value="items" className="space-y-4">
@@ -396,6 +476,162 @@ export default function MenuManagementPage() {
                     </Card>
                   ))}
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="trends" className="space-y-4">
+            {/* AI Menu Trends */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Sparkles className="h-5 w-5 text-purple-500" />
+                      AI Menu Trend Analysis
+                    </CardTitle>
+                    <CardDescription>AI-powered menu performance predictions and recommendations</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Select value={trendPeriod} onValueChange={setTrendPeriod}>
+                      <SelectTrigger className="w-[120px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="week">Next Week</SelectItem>
+                        <SelectItem value="month">Next Month</SelectItem>
+                        <SelectItem value="quarter">Next Quarter</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      onClick={generateMenuTrends}
+                      disabled={isGeneratingTrends}
+                      variant="outline"
+                    >
+                      <TrendingUp className="mr-2 h-4 w-4" />
+                      {isGeneratingTrends ? "Analyzing..." : "Refresh"}
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {isGeneratingTrends && (
+                  <div className="text-center py-8">
+                    <div className="text-blue-600 mb-2">Analyzing menu trends...</div>
+                    <div className="text-sm text-gray-500">Processing sales data and generating predictions</div>
+                  </div>
+                )}
+                
+                {trendError && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-5 w-5 text-red-600" />
+                      <span className="text-red-800">{trendError}</span>
+                    </div>
+                  </div>
+                )}
+
+                {menuTrends && trendSummary && (
+                  <div className="space-y-6">
+                    {/* Trend Summary */}
+                    <div className="grid gap-4 md:grid-cols-4">
+                      <div className="text-center p-4 border rounded-lg bg-blue-50">
+                        <h3 className="font-semibold text-lg text-blue-800">Total Trends</h3>
+                        <p className="text-2xl font-bold text-blue-600">{trendSummary.totalTrends}</p>
+                        <p className="text-xs text-blue-600">Items analyzed</p>
+                      </div>
+                      <div className="text-center p-4 border rounded-lg bg-green-50">
+                        <h3 className="font-semibold text-lg text-green-800">Rising Trends</h3>
+                        <p className="text-2xl font-bold text-green-600">{trendSummary.risingTrends}</p>
+                        <p className="text-xs text-green-600">Growing items</p>
+                      </div>
+                      <div className="text-center p-4 border rounded-lg bg-yellow-50">
+                        <h3 className="font-semibold text-lg text-yellow-800">New Opportunities</h3>
+                        <p className="text-2xl font-bold text-yellow-600">{trendSummary.newOpportunities}</p>
+                        <p className="text-xs text-yellow-600">Potential items</p>
+                      </div>
+                      <div className="text-center p-4 border rounded-lg bg-purple-50">
+                        <h3 className="font-semibold text-lg text-purple-800">Revenue Impact</h3>
+                        <p className="text-2xl font-bold text-purple-600">${trendSummary.estimatedRevenueImpact.toLocaleString()}</p>
+                        <p className="text-xs text-purple-600">Estimated gain</p>
+                      </div>
+                    </div>
+
+                    {/* Menu Trends List */}
+                    <div className="space-y-4">
+                      <h3 className="font-semibold text-lg">Menu Trend Analysis</h3>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        {menuTrends.map((trend, idx) => (
+                          <Card key={idx} className="p-4">
+                            <div className="flex items-start justify-between mb-3">
+                              <div>
+                                <h4 className="font-semibold text-navy-blue">{trend.itemName}</h4>
+                                <p className="text-sm text-gray-600 capitalize">{trend.category}</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge 
+                                  className={
+                                    trend.trend === 'rising' ? 'bg-green-500' :
+                                    trend.trend === 'declining' ? 'bg-red-500' :
+                                    trend.trend === 'stable' ? 'bg-blue-500' :
+                                    'bg-yellow-500'
+                                  }
+                                >
+                                  {trend.trend}
+                                </Badge>
+                                {trend.growthRate > 0 ? (
+                                  <ArrowUp className="h-4 w-4 text-green-600" />
+                                ) : trend.growthRate < 0 ? (
+                                  <ArrowDown className="h-4 w-4 text-red-600" />
+                                ) : (
+                                  <Minus className="h-4 w-4 text-blue-600" />
+                                )}
+                              </div>
+                            </div>
+                            
+                            <div className="space-y-2">
+                              <div className="flex justify-between text-sm">
+                                <span className="text-gray-600">Current Sales:</span>
+                                <span className="font-semibold">{trend.currentSales}</span>
+                              </div>
+                              <div className="flex justify-between text-sm">
+                                <span className="text-gray-600">Predicted Sales:</span>
+                                <span className="font-semibold">{trend.predictedSales}</span>
+                              </div>
+                              <div className="flex justify-between text-sm">
+                                <span className="text-gray-600">Growth Rate:</span>
+                                <span className={`font-semibold ${trend.growthRate > 0 ? 'text-green-600' : trend.growthRate < 0 ? 'text-red-600' : 'text-blue-600'}`}>
+                                  {trend.growthRate > 0 ? '+' : ''}{trend.growthRate.toFixed(1)}%
+                                </span>
+                              </div>
+                              {trend.seasonality && (
+                                <div className="text-xs text-gray-500">
+                                  <strong>Seasonality:</strong> {trend.seasonality}
+                                </div>
+                              )}
+                              <div className="text-xs text-gray-500 mt-2">
+                                <strong>Reasoning:</strong> {trend.reasoning}
+                              </div>
+                              {trend.recommendations.length > 0 && (
+                                <div className="mt-3">
+                                  <p className="text-xs font-semibold text-gray-700 mb-1">Recommendations:</p>
+                                  <ul className="text-xs text-gray-600 space-y-1">
+                                    {trend.recommendations.map((rec, recIdx) => (
+                                      <li key={recIdx} className="flex items-start gap-1">
+                                        <CheckCircle className="h-3 w-3 mt-0.5 text-green-600 flex-shrink-0" />
+                                        {rec}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+                          </Card>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

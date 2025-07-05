@@ -4,7 +4,7 @@ import type React from "react"
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { BarChart3, ClipboardList, Home, LogOut, Menu, Settings, ShoppingBag, Users, TrendingUp } from "lucide-react"
+import { BarChart3, ClipboardList, Home, LogOut, Menu, Settings, ShoppingBag, Users, TrendingUp, Package, QrCode } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
@@ -65,14 +65,14 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex h-screen bg-gray-50 overflow-hidden">
       {/* Sidebar for larger screens */}
-      <aside className="hidden md:flex flex-col w-64 bg-navy-blue text-white">
+      <aside className="hidden md:flex flex-col w-64 bg-navy-blue text-white h-screen">
         <div className="p-4 border-b border-navy-blue-700">
           <h2 className="text-xl font-bold">Restomate</h2>
           <p className="text-xs text-navy-blue-200">Restaurant Management</p>
         </div>
-        <nav className="flex-1 p-4">
+        <nav className="flex-1 p-4 overflow-y-auto">
           <ul className="space-y-2">
             <li>
               <Link
@@ -106,7 +106,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                 href="/dashboard/stock"
                 className={`flex items-center p-2 rounded-lg ${title === "Stock Management" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
               >
-                <ShoppingBag className="mr-3 h-5 w-5" />
+                <Package className="mr-3 h-5 w-5" />
                 Stock Management
               </Link>
             </li>
@@ -142,14 +142,14 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                 href="/dashboard/qr-generator"
                 className={`flex items-center p-2 rounded-lg ${title === "QR Generator" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
               >
-                <Users className="mr-3 h-5 w-5" />
+                <QrCode className="mr-3 h-5 w-5" />
                 QR Generator
               </Link>
             </li>
           </ul>
         </nav>
-        <div className="p-4 border-t border-navy-blue-700">
-          <button onClick={handleLogout} className="flex items-center w-full p-2 rounded-lg hover:bg-navy-blue-700">
+        <div className="p-4 border-t border-navy-blue-700 mt-auto">
+          <button onClick={handleLogout} className="flex items-center w-full p-2 rounded-lg hover:bg-navy-blue-700 text-red-200 hover:text-red-100 font-medium">
             <LogOut className="mr-3 h-5 w-5" />
             Log Out
           </button>
@@ -158,12 +158,12 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
 
       {/* Mobile sidebar */}
       <Sheet open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
-        <SheetContent side="left" className="w-64 p-0 bg-navy-blue text-white">
+        <SheetContent side="left" className="w-64 p-0 bg-navy-blue text-white h-full">
           <div className="p-4 border-b border-navy-blue-700">
             <h2 className="text-xl font-bold">Restomate</h2>
             <p className="text-xs text-navy-blue-200">Restaurant Management</p>
           </div>
-          <nav className="flex-1 p-4">
+          <nav className="flex-1 p-4 overflow-y-auto">
             <ul className="space-y-2">
               <li>
                 <Link
@@ -197,7 +197,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                   href="/dashboard/stock"
                   className={`flex items-center p-2 rounded-lg ${title === "Stock Management" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
                 >
-                  <ShoppingBag className="mr-3 h-5 w-5" />
+                  <Package className="mr-3 h-5 w-5" />
                   Stock Management
                 </Link>
               </li>
@@ -233,14 +233,14 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                   href="/dashboard/qr-generator"
                   className={`flex items-center p-2 rounded-lg ${title === "QR Generator" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
                 >
-                  <Users className="mr-3 h-5 w-5" />
+                  <QrCode className="mr-3 h-5 w-5" />
                   QR Generator
                 </Link>
               </li>
             </ul>
           </nav>
-          <div className="p-4 border-t border-navy-blue-700">
-            <button onClick={handleLogout} className="flex items-center w-full p-2 rounded-lg hover:bg-navy-blue-700">
+          <div className="p-4 border-t border-navy-blue-700 mt-auto">
+            <button onClick={handleLogout} className="flex items-center w-full p-2 rounded-lg hover:bg-navy-blue-700 text-red-200 hover:text-red-100 font-medium">
               <LogOut className="mr-3 h-5 w-5" />
               Log Out
             </button>
@@ -249,9 +249,9 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
       </Sheet>
 
       {/* Main content */}
-      <div className="flex-1">
+      <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <header className="bg-white shadow-sm">
+        <header className="bg-white shadow-sm flex-shrink-0">
           <div className="flex items-center justify-between p-4">
             <div className="flex items-center">
               <Button variant="ghost" size="icon" className="md:hidden mr-2" onClick={() => setIsSidebarOpen(true)}>
@@ -263,6 +263,15 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
               <Button variant="outline" size="sm">
                 <BarChart3 className="mr-2 h-4 w-4" />
                 Reports
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleLogout}
+                className="md:hidden"
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Logout
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -296,7 +305,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
         </header>
 
         {/* Page content */}
-        <main className="p-4 md:p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">{children}</main>
       </div>
     </div>
   )
