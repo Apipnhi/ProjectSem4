@@ -1,135 +1,135 @@
 {
   "summary": {
-    "totalIngredients": 13,
+    "totalIngredients": 12,
     "highUrgency": 5,
-    "estimatedTotalCost": 123500
+    "estimatedTotalCost": 245000
   },
   "predictions": [
     {
       "ingredient": "Nangka Muda",
       "currentStock": 5,
-      "predictedNeed": 8,
-      "recommendedOrder": 3,
+      "predictedNeed": 10,
+      "recommendedOrder": 5,
       "urgency": "high",
-      "reasoning": "High demand from Nasi Gudeg sales",
-      "estimatedCost": 24000
+      "reasoning": "High demand for Nasi Gudeg",
+      "estimatedCost": 50000
     },
     {
       "ingredient": "Santan Kelapa",
       "currentStock": 10,
-      "predictedNeed": 12,
-      "recommendedOrder": 2,
+      "predictedNeed": 20,
+      "recommendedOrder": 10,
       "urgency": "high",
-      "reasoning": "High demand from Nasi Gudeg sales",
-      "estimatedCost": 16000
+      "reasoning": "High demand for Nasi Gudeg",
+      "estimatedCost": 100000
     },
     {
       "ingredient": "Ayam Potong",
       "currentStock": 15,
-      "predictedNeed": 18,
-      "recommendedOrder": 3,
+      "predictedNeed": 30,
+      "recommendedOrder": 15,
       "urgency": "high",
-      "reasoning": "High demand from Ayam Goreng Kremes sales",
-      "estimatedCost": 36000
-    },
-    {
-      "ingredient": "Tepung Terigu",
-      "currentStock": 20,
-      "predictedNeed": 22,
-      "recommendedOrder": 2,
-      "urgency": "medium",
-      "reasoning": "Moderate demand from Ayam Goreng Kremes sales",
-      "estimatedCost": 22000
+      "reasoning": "High demand for Ayam Goreng Kremes",
+      "estimatedCost": 75000
     },
     {
       "ingredient": "Daging Ayam",
       "currentStock": 8,
-      "predictedNeed": 10,
-      "recommendedOrder": 2,
-      "urgency": "high",
-      "reasoning": "High demand from Sate Ayam sales",
-      "estimatedCost": 20000
-    },
-    {
-      "ingredient": "Bumbu Kacang",
-      "currentStock": 5,
-      "predictedNeed": 7,
-      "recommendedOrder": 2,
-      "urgency": "high",
-      "reasoning": "High demand from Sate Ayam sales",
-      "estimatedCost": 14000
+      "predictedNeed": 16,
+      "recommendedOrder": 8,
+      "urgency": "medium",
+      "reasoning": "Moderate demand for Sate Ayam",
+      "estimatedCost": 32000
     },
     {
       "ingredient": "Daging Sapi",
       "currentStock": 12,
-      "predictedNeed": 14,
-      "recommendedOrder": 2,
+      "predictedNeed": 24,
+      "recommendedOrder": 12,
       "urgency": "medium",
-      "reasoning": "Moderate demand from Bakso Malang sales",
-      "estimatedCost": 28000
+      "reasoning": "Moderate demand for Bakso Malang",
+      "estimatedCost": 43200
+    },
+    {
+      "ingredient": "Bumbu Kacang",
+      "currentStock": 5,
+      "predictedNeed": 10,
+      "recommendedOrder": 5,
+      "urgency": "medium",
+      "reasoning": "Moderate demand for Sate Ayam",
+      "estimatedCost": 20000
     },
     {
       "ingredient": "Mie Bakso",
       "currentStock": 20,
-      "predictedNeed": 22,
-      "recommendedOrder": 2,
+      "predictedNeed": 40,
+      "recommendedOrder": 20,
       "urgency": "medium",
-      "reasoning": "Moderate demand from Bakso Malang sales",
-      "estimatedCost": 22000
+      "reasoning": "Moderate demand for Bakso Malang",
+      "estimatedCost": 80000
     },
     {
       "ingredient": "Minyak Goreng",
       "currentStock": 25,
-      "predictedNeed": 27,
-      "recommendedOrder": 2,
+      "predictedNeed": 50,
+      "recommendedOrder": 25,
       "urgency": "low",
-      "reasoning": "Low demand from Ayam Goreng Kremes sales",
-      "estimatedCost": 15000
+      "reasoning": "Low demand for Ayam Goreng Kremes",
+      "estimatedCost": 125000
     },
     {
       "ingredient": "Bawang Merah",
       "currentStock": 10,
-      "predictedNeed": 12,
-      "recommendedOrder": 2,
-      "urgency": "high",
-      "reasoning": "High demand from Sate Ayam sales",
-      "estimatedCost": 12000
+      "predictedNeed": 20,
+      "recommendedOrder": 10,
+      "urgency": "low",
+      "reasoning": "Low demand for Sate Ayam",
+      "estimatedCost": 20000
     },
     {
       "ingredient": "Bawang Putih",
       "currentStock": 8,
-      "predictedNeed": 10,
-      "recommendedOrder": 2,
-      "urgency": "high",
-      "reasoning": "High demand from Sate Ayam sales",
-      "estimatedCost": 10000
+      "predictedNeed": 16,
+      "recommendedOrder": 8,
+      "urgency": "low",
+      "reasoning": "Low demand for Sate Ayam",
+      "estimatedCost": 16000
     },
     {
       "ingredient": "Garam Dapur",
       "currentStock": 5,
-      "predictedNeed": 7,
-      "recommendedOrder": 2,
-      "urgency": "medium",
-      "reasoning": "Moderate demand from Nasi Gudeg sales",
-      "estimatedCost": 7000
+      "predictedNeed": 10,
+      "recommendedOrder": 5,
+      "urgency": "low",
+      "reasoning": "Low demand for Nasi Gudeg",
+      "estimatedCost": 10000
     },
     {
       "ingredient": "Teh Celup",
       "currentStock": 100,
-      "predictedNeed": 102,
-      "recommendedOrder": 2,
+      "predictedNeed": 100,
+      "recommendedOrder": 0,
       "urgency": "low",
-      "reasoning": "Low demand from Es Teh Manis sales",
-      "estimatedCost": 10000
+      "reasoning": "No need to restock",
+      "estimatedCost": 0
     },
     {
       "ingredient": "Gula Pasir",
       "currentStock": 25,
-      "predictedNeed": 27,
-      "recommendedOrder": 2,
+      "predictedNeed": 25,
+      "recommendedOrder": 0,
       "urgency": "low",
-      "reasoning": "Low demand from Es Teh Manis sales",
-      "estimatedCost": 15000
+      "reasoning": "No need to restock",
+      "estimatedCost": 0
+    },
+    {
+      "ingredient": "Tepung Terigu",
+      "currentStock": 20,
+      "predictedNeed": 40,
+      "recommendedOrder": 20,
+      "urgency": "medium",
+      "reasoning": "Moderate demand for Ayam Goreng Kremes",
+      "estimatedCost": 80000
     }
   ]
 }
