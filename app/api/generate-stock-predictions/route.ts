@@ -1,154 +1,115 @@
-import { NextResponse } from "next/server"
-import { callGroqLLM } from '@/lib/utils'
+import { NextRequest, NextResponse } from "next/server";
+import { query } from "@/lib/db";
+import fs from "fs/promises";
+import path from "path";
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY
-
-interface MenuItem {
-  name: string
-  sales: number
-  revenue: number
-}
-
-interface StockPrediction {
-  ingredient: string
-  currentStock: number
-  predictedNeed: number
-  recommendedOrder: number
-  urgency: 'low' | 'medium' | 'high'
-  reasoning: string
-  estimatedCost: number
-}
-
-export async function POST(request: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const { menuSales, currentStock, period } = await request.json()
+    const body = await req.json();
+    const id_restaurant = 1;
 
-    // Validate required data
-    if (!menuSales || !Array.isArray(menuSales)) {
-      return NextResponse.json(
-        { error: "Menu sales data is required" },
-        { status: 400 }
-      )
+    const stok = await query(`
+      SELECT s.nama_bahan, s.kuantitas, m.Nama_Menu
+      FROM STOK s
+      JOIN menu m ON s.id_menu = m.Id_Menu
+      WHERE s.id_restaurant = ?
+    `, [id_restaurant]);
+
+    const sales = await query(`
+      SELECT mm.id_menu, COUNT(*) as total_sold
+      FROM MEMESAN_MENU mm
+      JOIN Customer c ON mm.id_customer = c.Invoice_Id
+      WHERE c.id_restaurant = ?
+      GROUP BY mm.id_menu
+    `, [id_restaurant]);
+
+    const menu = await query(`
+      SELECT Id_Menu, Nama_Menu, Harga
+      FROM menu
+      WHERE id_restaurant = ?
+    `, [id_restaurant]);
+
+    const dataForLLM = {
+      stok,
+      sales,
+      menu,
+      period: body.period || "week",
+    };
+
+    const llmResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "llama3-70b-8192",
+        messages: [
+          {
+            role: "system",
+            content: `
+Kamu adalah analis stok restoran.
+
+**Tugasmu:**
+- Gunakan data stok, penjualan, dan menu untuk menghitung kebutuhan bahan baku periode mendatang.
+- Buat rekomendasi pembelian bahan baku, dalam format JSON.
+- Jangan berikan teks penjelasan apa pun di luar JSON.
+- Hasilkan hanya JSON, tanpa kata pembuka atau penutup.
+
+**Format JSON yang wajib kamu ikuti:**
+
+{
+  "summary": {
+    "totalIngredients": <number>,
+    "highUrgency": <number>,
+    "estimatedTotalCost": <number>
+  },
+  "predictions": [
+    {
+      "ingredient": "<nama bahan>",
+      "currentStock": <number>,
+      "predictedNeed": <number>,
+      "recommendedOrder": <number>,
+      "urgency": "<low|medium|high>",
+      "reasoning": "<penjelasan>",
+      "estimatedCost": <number>
     }
+  ]
+}
 
-    const typedMenuSales: MenuItem[] = menuSales
-    const salesLines: string[] = typedMenuSales.map((item: MenuItem) => 
-      `${item.name}: ${item.sales} sales, $${item.revenue} revenue`
-    )
+Gunakan data berikut untuk menganalisis:
 
-    // Create a comprehensive prompt for stock prediction
-    const prompt = `Based on the following restaurant menu sales data, predict stock requirements for the next ${period || 'week'}.
-
-Menu Sales Data:
-${salesLines.join("\n")}
-
-Current Stock Levels:
-${currentStock ? Object.entries(currentStock).map(([item, amount]) => `${item}: ${amount} units`).join("\n") : "No current stock data provided"}
-
-Please analyze the sales patterns and predict stock requirements for common restaurant ingredients. Consider:
-1. Popular menu items and their ingredient requirements
-2. Sales volume trends
-3. Seasonal factors
-4. Waste and spoilage rates
-5. Safety stock levels
-
-For each ingredient, provide:
-- ingredient: name of the ingredient
-- currentStock: current available stock (if known)
-- predictedNeed: amount needed for the period
-- recommendedOrder: suggested order quantity
-- urgency: "low", "medium", or "high" based on stock levels and demand
-- reasoning: explanation for the prediction
-- estimatedCost: estimated cost for the recommended order
-
-Return as JSON array of objects with these fields. Focus on the most critical ingredients first.`
-
-    try {
-      const llmResponse = await callGroqLLM(prompt)
-      console.log("LLM Response for stock prediction:", llmResponse)
-      
-      // Try to extract JSON from the response
-      const jsonMatch = llmResponse.match(/\[[\s\S]*\]/)
-      const jsonString = jsonMatch ? jsonMatch[0] : llmResponse
-      
-      const stockPredictions: StockPrediction[] = JSON.parse(jsonString)
-      
-      // Validate and enhance the predictions
-      const validatedPredictions = stockPredictions.map(prediction => ({
-        ...prediction,
-        estimatedCost: prediction.estimatedCost || 0,
-        urgency: prediction.urgency || 'medium'
-      }))
-
-      return NextResponse.json({ 
-        predictions: validatedPredictions,
-        summary: {
-          totalIngredients: validatedPredictions.length,
-          highUrgency: validatedPredictions.filter(p => p.urgency === 'high').length,
-          estimatedTotalCost: validatedPredictions.reduce((sum, p) => sum + p.estimatedCost, 0)
-        }
-      })
-    } catch (parseError) {
-      console.error("Error parsing LLM response:", parseError)
-      
-      // Return fallback stock predictions
-      return NextResponse.json({ 
-        predictions: [
-          {
-            ingredient: "Fresh Tomatoes",
-            currentStock: 50,
-            predictedNeed: 120,
-            recommendedOrder: 80,
-            urgency: "high",
-            reasoning: "High demand from popular pasta dishes and salads",
-            estimatedCost: 240.00
+${JSON.stringify(dataForLLM, null, 2)}
+            `.trim(),
           },
-          {
-            ingredient: "Chicken Breast",
-            currentStock: 30,
-            predictedNeed: 90,
-            recommendedOrder: 70,
-            urgency: "medium",
-            reasoning: "Consistent demand from grilled chicken dishes",
-            estimatedCost: 350.00
-          },
-          {
-            ingredient: "Fresh Basil",
-            currentStock: 15,
-            predictedNeed: 25,
-            recommendedOrder: 15,
-            urgency: "low",
-            reasoning: "Moderate usage in Italian dishes",
-            estimatedCost: 45.00
-          },
-          {
-            ingredient: "Olive Oil",
-            currentStock: 8,
-            predictedNeed: 12,
-            recommendedOrder: 6,
-            urgency: "medium",
-            reasoning: "Essential ingredient used across multiple dishes",
-            estimatedCost: 120.00
-          },
-          {
-            ingredient: "Parmesan Cheese",
-            currentStock: 20,
-            predictedNeed: 35,
-            recommendedOrder: 20,
-            urgency: "medium",
-            reasoning: "High usage in pasta and pizza dishes",
-            estimatedCost: 180.00
-          }
         ],
-        summary: {
-          totalIngredients: 5,
-          highUrgency: 1,
-          estimatedTotalCost: 935.00
-        }
-      })
+        temperature: 0.7,
+      }),
+    });
+
+    const llmData = await llmResponse.json();
+    const content = llmData.choices?.[0]?.message?.content || "{}";
+
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (e) {
+      console.log("❌ LLM returned invalid JSON:", content);
+      return NextResponse.json({ error: "LLM returned invalid JSON" });
     }
-  } catch (error) {
-    console.error("Error generating stock predictions:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+
+    const outputPath = path.join(process.cwd(), "public", "predictions.json");
+    try {
+      await fs.writeFile(outputPath, JSON.stringify(parsed, null, 2));
+      console.log("✅ predictions.json written:", outputPath);
+    } catch (err) {
+      console.error("❌ Failed to write predictions.json:", err);
+      return NextResponse.json({ error: "Failed to write predictions.json" });
+    }
+
+    return NextResponse.json({ message: "Prediction generated", success: true });
+  } catch (err) {
+    console.error("❌ General error:", err);
+    return NextResponse.json({ error: "Failed to generate predictions" }, { status: 500 });
   }
-} 
+}
