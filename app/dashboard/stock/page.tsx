@@ -165,7 +165,7 @@ export default function StockManagementPage() {
                     Estimated Cost
                   </h3>
                   <p className="text-2xl font-bold text-green-600">
-                    ${predictionSummary.estimatedTotalCost.toLocaleString()}
+                    Rp{predictionSummary.estimatedTotalCost.toLocaleString()}
                   </p>
                   <p className="text-xs text-green-600">Total order value</p>
                 </div>
@@ -215,7 +215,7 @@ export default function StockManagementPage() {
                             Estimated Cost:
                           </span>
                           <span className="font-semibold">
-                            ${prediction.estimatedCost.toFixed(2)}
+                            Rp{prediction.estimatedCost.toFixed(2)}
                           </span>
                         </div>
                         <div className="text-xs text-gray-500 mt-2">
