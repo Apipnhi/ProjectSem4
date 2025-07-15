@@ -24,7 +24,7 @@ interface StockPredictionSummary {
   estimatedTotalCost: number;
 }
 
-export default function StockManagementPage() {
+function StockManagementPage() {
   const [stockPredictions, setStockPredictions] = useState<StockPrediction[] | null>(null);
   const [predictionSummary, setPredictionSummary] = useState<StockPredictionSummary | null>(null);
   const [isGeneratingPredictions, setIsGeneratingPredictions] = useState(false);
@@ -36,25 +36,36 @@ export default function StockManagementPage() {
     setPredictionError(null);
 
     try {
+      console.log("Starting prediction generation...");
+      
       const generateResponse = await fetch("/api/generate-stock-predictions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ period: predictionPeriod }),
       });
 
+      console.log("Generate response status:", generateResponse.status);
+
       const generateData = await generateResponse.json();
       if (!generateResponse.ok) {
         throw new Error(generateData.error || "Failed to generate predictions");
       }
 
-      // Optional delay
+      console.log("Predictions generated successfully:", generateData);
+
+      // Optional delay to show loading state
       await new Promise((resolve) => setTimeout(resolve, 500));
 
+      // Try to fetch the predictions file
       const response = await fetch("/predictions.json");
+      console.log("Predictions file response status:", response.status);
+      
       const contentType = response.headers.get("content-type");
 
       if (contentType && contentType.includes("application/json")) {
         const data = await response.json();
+        console.log("Predictions data:", data);
+        
         if (data.predictions) {
           setStockPredictions(data.predictions);
           setPredictionSummary(data.summary);
@@ -215,7 +226,7 @@ export default function StockManagementPage() {
                             Estimated Cost:
                           </span>
                           <span className="font-semibold">
-                            Rp{prediction.estimatedCost.toFixed(2)}
+                            Rp{prediction.estimatedCost.toLocaleString()}
                           </span>
                         </div>
                         <div className="text-xs text-gray-500 mt-2">
@@ -234,3 +245,6 @@ export default function StockManagementPage() {
     </DashboardLayout>
   );
 }
+
+// Default export untuk Next.js
+export default StockManagementPage;

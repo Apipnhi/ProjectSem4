@@ -1,128 +1,204 @@
-import { NextResponse } from "next/server"
+// app/api/apply-promotion/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { writeFile, readFile } from 'fs/promises';
+import path from 'path';
 
 interface Promotion {
-  type: string
-  description: string
-  reasoning: string
-  estimatedImpact: string
-  details?: string
+  type: string;
+  description: string;
+  reasoning: string;
+  estimatedImpact: string;
+  details?: string;
 }
 
 interface AppliedPromotion extends Promotion {
-  id: string
-  appliedAt: string
-  status: 'active' | 'paused' | 'completed'
-  startDate: string
-  endDate?: string
+  id: string;
+  appliedAt: string;
+  status: 'active' | 'paused' | 'completed';
+  startDate: string;
+  endDate?: string;
   performance?: {
-    orders: number
-    revenue: number
-    conversionRate: number
+    orders: number;
+    revenue: number;
+    conversionRate: number;
+  };
+}
+
+const PROMOTIONS_FILE = path.join(process.cwd(), 'public', 'applied-promotions.json');
+
+async function readPromotions(): Promise<AppliedPromotion[]> {
+  try {
+    const data = await readFile(PROMOTIONS_FILE, 'utf8');
+    return JSON.parse(data);
+  } catch (error) {
+    // File doesn't exist or is empty, return empty array
+    return [];
   }
 }
 
-// In-memory storage for applied promotions (in production, this would be a database)
-let appliedPromotions: AppliedPromotion[] = []
+async function writePromotions(promotions: AppliedPromotion[]): Promise<void> {
+  await writeFile(PROMOTIONS_FILE, JSON.stringify(promotions, null, 2), 'utf8');
+}
 
-export async function POST(request: Request) {
+function generateId(): string {
+  return Math.random().toString(36).substr(2, 9);
+}
+
+// GET - Fetch all applied promotions
+export async function GET(request: NextRequest) {
   try {
-    const { promotion, startDate, endDate } = await request.json()
+    const promotions = await readPromotions();
+    
+    return NextResponse.json({
+      success: true,
+      promotions: promotions
+    });
+  } catch (error) {
+    console.error('Error fetching promotions:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch promotions' },
+      { status: 500 }
+    );
+  }
+}
 
-    // Validate required fields
-    if (!promotion || !promotion.type || !promotion.description) {
+// POST - Apply a new promotion
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { promotion, startDate, endDate } = body;
+
+    if (!promotion || !startDate) {
       return NextResponse.json(
-        { error: "Invalid promotion data" },
+        { error: 'Promotion data and start date are required' },
         { status: 400 }
-      )
+      );
     }
 
-    // Generate unique ID for the promotion
-    const promotionId = `promo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-
-    // Create applied promotion object
     const appliedPromotion: AppliedPromotion = {
-      id: promotionId,
-      type: promotion.type,
-      description: promotion.description,
-      reasoning: promotion.reasoning,
-      estimatedImpact: promotion.estimatedImpact,
-      details: promotion.details,
+      id: generateId(),
+      ...promotion,
       appliedAt: new Date().toISOString(),
       status: 'active',
-      startDate: startDate || new Date().toISOString(),
-      endDate: endDate,
+      startDate,
+      endDate,
       performance: {
         orders: 0,
         revenue: 0,
         conversionRate: 0
       }
-    }
+    };
 
-    // Add to storage
-    appliedPromotions.push(appliedPromotion)
+    const existingPromotions = await readPromotions();
+    const updatedPromotions = [...existingPromotions, appliedPromotion];
+    
+    await writePromotions(updatedPromotions);
 
-    // In a real application, you would:
-    // 1. Save to database
-    // 2. Update menu prices/availability
-    // 3. Send notifications to staff
-    // 4. Update POS system
-    // 5. Create marketing materials
+    console.log('Promotion applied successfully:', appliedPromotion.id);
 
     return NextResponse.json({
       success: true,
-      promotion: appliedPromotion,
-      message: `Promotion "${promotion.description}" has been successfully applied!`
-    })
-
+      message: 'Promotion applied successfully',
+      promotion: appliedPromotion
+    });
   } catch (error) {
-    console.error("Error applying promotion:", error)
+    console.error('Error applying promotion:', error);
     return NextResponse.json(
-      { error: "Failed to apply promotion" },
+      { error: 'Failed to apply promotion' },
       { status: 500 }
-    )
+    );
   }
 }
 
-export async function GET() {
+// PUT - Update promotion status
+export async function PUT(request: NextRequest) {
   try {
-    // Return all applied promotions
-    return NextResponse.json({
-      promotions: appliedPromotions
-    })
-  } catch (error) {
-    console.error("Error fetching applied promotions:", error)
-    return NextResponse.json(
-      { error: "Failed to fetch applied promotions" },
-      { status: 500 }
-    )
-  }
-}
+    const body = await request.json();
+    const { promotionId, status, performance } = body;
 
-export async function PUT(request: Request) {
-  try {
-    const { promotionId, status } = await request.json()
-
-    const promotion = appliedPromotions.find(p => p.id === promotionId)
-    if (!promotion) {
+    if (!promotionId || !status) {
       return NextResponse.json(
-        { error: "Promotion not found" },
-        { status: 404 }
-      )
+        { error: 'Promotion ID and status are required' },
+        { status: 400 }
+      );
     }
 
-    promotion.status = status
+    const promotions = await readPromotions();
+    const promotionIndex = promotions.findIndex(p => p.id === promotionId);
+
+    if (promotionIndex === -1) {
+      return NextResponse.json(
+        { error: 'Promotion not found' },
+        { status: 404 }
+      );
+    }
+
+    // Update promotion
+    promotions[promotionIndex].status = status;
+    
+    if (performance) {
+      promotions[promotionIndex].performance = performance;
+    }
+
+    // If completing promotion, set end date
+    if (status === 'completed' && !promotions[promotionIndex].endDate) {
+      promotions[promotionIndex].endDate = new Date().toISOString();
+    }
+
+    await writePromotions(promotions);
+
+    console.log('Promotion status updated:', promotionId, status);
 
     return NextResponse.json({
       success: true,
-      promotion,
-      message: `Promotion status updated to ${status}`
-    })
-
+      message: `Promotion ${status} successfully`,
+      promotion: promotions[promotionIndex]
+    });
   } catch (error) {
-    console.error("Error updating promotion:", error)
+    console.error('Error updating promotion status:', error);
     return NextResponse.json(
-      { error: "Failed to update promotion" },
+      { error: 'Failed to update promotion status' },
       { status: 500 }
-    )
+    );
   }
-} 
+}
+
+// DELETE - Remove a promotion
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const promotionId = searchParams.get('id');
+
+    if (!promotionId) {
+      return NextResponse.json(
+        { error: 'Promotion ID is required' },
+        { status: 400 }
+      );
+    }
+
+    const promotions = await readPromotions();
+    const filteredPromotions = promotions.filter(p => p.id !== promotionId);
+
+    if (filteredPromotions.length === promotions.length) {
+      return NextResponse.json(
+        { error: 'Promotion not found' },
+        { status: 404 }
+      );
+    }
+
+    await writePromotions(filteredPromotions);
+
+    console.log('Promotion deleted:', promotionId);
+
+    return NextResponse.json({
+      success: true,
+      message: 'Promotion deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting promotion:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete promotion' },
+      { status: 500 }
+    );
+  }
+}
