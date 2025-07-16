@@ -1,3 +1,4 @@
+// app/api/generate-packs/route.ts
 import { NextResponse } from "next/server"
 import { callGroqLLM } from '@/lib/utils'
 

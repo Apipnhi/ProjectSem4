@@ -1,3 +1,4 @@
+// app/dashboard/qr-generator/page.tsx
 "use client"
 
 import { useState } from "react"

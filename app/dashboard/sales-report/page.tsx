@@ -207,15 +207,22 @@ export default function SalesReportPage() {
   // Fetch feedback data
   const fetchFeedback = async () => {
     try {
-      const response = await fetch(`/api/feedback?rating=${ratingFilter}&sort=${timeFilter}&limit=20`);
+      const response = await fetch(`/api/feedback?rating=${ratingFilter}&status=approved&sort=${timeFilter}&limit=20`);
       const data = await response.json();
       
       if (data.success) {
-        setFeedback(data.data);
+        setFeedback(data.data || []);
         setFeedbackSummary(data.summary);
+        console.log('Feedback loaded:', data.data?.length, 'items');
+      } else {
+        console.error('Failed to fetch feedback:', data.error);
+        setFeedback([]);
+        setFeedbackSummary(null);
       }
     } catch (error) {
       console.error('Error fetching feedback:', error);
+      setFeedback([]);
+      setFeedbackSummary(null);
     }
   };
 
@@ -374,6 +381,16 @@ export default function SalesReportPage() {
     }
   };
 
+  // Format currency in Indonesian Rupiah
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  };
+
   // Get current data based on period
   const getCurrentData = (): SalesData[] => {
     if (!salesOverview) return [];
@@ -464,6 +481,12 @@ export default function SalesReportPage() {
             <AlertTriangle className="h-5 w-5 text-red-600" />
             <span className="text-red-800">{error}</span>
           </div>
+          <Button 
+            onClick={fetchSalesOverview} 
+            className="mt-4 bg-red-600 hover:bg-red-700"
+          >
+            Retry
+          </Button>
         </div>
       </DashboardLayout>
     );
@@ -513,7 +536,7 @@ export default function SalesReportPage() {
                 <TrendingUp className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">Rp{salesOverview.summary.totalSales.toLocaleString()}</div>
+                <div className="text-2xl font-bold">{formatCurrency(salesOverview.summary.totalSales)}</div>
                 <p className="text-xs text-muted-foreground">
                   <span className={`${salesOverview.summary.growthRate >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                     {salesOverview.summary.growthRate >= 0 ? '+' : ''}{salesOverview.summary.growthRate}%
@@ -539,7 +562,7 @@ export default function SalesReportPage() {
                 <TrendingUp className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">Rp{Math.round(salesOverview.summary.avgOrderValue).toLocaleString()}</div>
+                <div className="text-2xl font-bold">{formatCurrency(Math.round(salesOverview.summary.avgOrderValue))}</div>
                 <p className="text-xs text-muted-foreground">
                   <span className="text-green-500">+3.1%</span> from last period
                 </p>
@@ -574,17 +597,17 @@ export default function SalesReportPage() {
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="text-center p-4 border rounded-lg">
                   <h3 className="font-semibold text-lg">Next Day</h3>
-                  <p className="text-2xl font-bold text-navy-blue">Rp{predictions.nextDay?.sales.toLocaleString()}</p>
+                  <p className="text-2xl font-bold text-navy-blue">{formatCurrency(predictions.nextDay?.sales || 0)}</p>
                   <Badge className="mt-2 bg-green-500">{predictions.nextDay?.confidence}% Confidence</Badge>
                 </div>
                 <div className="text-center p-4 border rounded-lg">
                   <h3 className="font-semibold text-lg">Next Month</h3>
-                  <p className="text-2xl font-bold text-navy-blue">Rp{predictions.nextMonth?.sales.toLocaleString()}</p>
+                  <p className="text-2xl font-bold text-navy-blue">{formatCurrency(predictions.nextMonth?.sales || 0)}</p>
                   <Badge className="mt-2 bg-yellow-500">{predictions.nextMonth?.confidence}% Confidence</Badge>
                 </div>
                 <div className="text-center p-4 border rounded-lg">
                   <h3 className="font-semibold text-lg">Next Year</h3>
-                  <p className="text-2xl font-bold text-navy-blue">Rp{predictions.nextYear?.sales.toLocaleString()}</p>
+                  <p className="text-2xl font-bold text-navy-blue">{formatCurrency(predictions.nextYear?.sales || 0)}</p>
                   <Badge className="mt-2 bg-orange-500">{predictions.nextYear?.confidence}% Confidence</Badge>
                 </div>
               </div>
@@ -639,7 +662,7 @@ export default function SalesReportPage() {
                       <YAxis />
                       <CartesianGrid strokeDasharray="3 3" />
                       <Tooltip 
-                        formatter={(value: any) => [`Rp${value.toLocaleString()}`, 'Sales']}
+                        formatter={(value: any) => [formatCurrency(value), 'Sales']}
                       />
                       <Legend />
                       <Area
@@ -648,7 +671,7 @@ export default function SalesReportPage() {
                         stroke="#0f2b5b"
                         fillOpacity={1}
                         fill="url(#colorSales)"
-                        name="Sales (Rp)"
+                        name="Sales"
                       />
                     </AreaChart>
                   </ResponsiveContainer>
@@ -699,7 +722,7 @@ export default function SalesReportPage() {
                     <YAxis />
                     <CartesianGrid strokeDasharray="3 3" />
                     <Tooltip 
-                      formatter={(value: any) => [`Rp${value.toLocaleString()}`, 'Avg Order']}
+                      formatter={(value: any) => [formatCurrency(value), 'Avg Order']}
                     />
                     <Legend />
                     <Line
@@ -707,7 +730,7 @@ export default function SalesReportPage() {
                       dataKey="avgOrder"
                       stroke="#0f2b5b"
                       strokeWidth={3}
-                      name="Average Order (Rp)"
+                      name="Average Order"
                     />
                   </LineChart>
                 </ResponsiveContainer>
@@ -840,7 +863,7 @@ export default function SalesReportPage() {
                               <div>
                                 <div className="font-semibold">{item.nama_menu}</div>
                                 <div className="text-sm text-gray-500">
-                                  {item.total_quantity} orders • Rp{item.total_revenue.toLocaleString()} revenue
+                                  {item.total_quantity} orders • {formatCurrency(item.total_revenue)} revenue
                                 </div>
                                 <Badge variant="outline" className="text-xs mt-1">
                                   {item.category}
@@ -849,7 +872,7 @@ export default function SalesReportPage() {
                             </div>
                             <div className="text-right">
                               <div className="font-bold text-lg text-navy-blue">#{index + 1}</div>
-                              <div className="text-sm text-gray-500">Rp{item.avg_price.toLocaleString()}</div>
+                              <div className="text-sm text-gray-500">{formatCurrency(item.avg_price)}</div>
                             </div>
                           </div>
                         ))}
@@ -895,6 +918,11 @@ export default function SalesReportPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="flex items-end">
+                    <Button onClick={fetchFeedback} variant="outline" size="sm">
+                      🔄 Refresh
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -922,7 +950,11 @@ export default function SalesReportPage() {
 
                 {feedback.length === 0 ? (
                   <div className="text-center text-gray-500 py-8">
-                    No feedback found for the selected filters.
+                    <div className="text-gray-400 mb-2">💬</div>
+                    <div className="text-gray-600">No feedback found for the selected filters.</div>
+                    <p className="text-sm text-gray-500 mt-2">
+                      Try changing the rating filter or check if there is feedback data in your database.
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -1055,7 +1087,7 @@ export default function SalesReportPage() {
                           {promotion.performance && (
                             <div className="mt-2 pt-2 border-t">
                               <strong>Performance:</strong> {promotion.performance.orders} orders, 
-                              Rp{promotion.performance.revenue.toLocaleString()} revenue
+                              {formatCurrency(promotion.performance.revenue)} revenue
                             </div>
                           )}
                         </div>

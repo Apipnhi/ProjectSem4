@@ -1,7 +1,7 @@
+// app/dashboard/menu/page.tsx - Updated version
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Plus, Edit, Trash2, Sparkles, Package, Search, RefreshCw, TrendingUp, AlertTriangle, CheckCircle, ArrowUp, ArrowDown, Minus } from "lucide-react"
 
-// Add types for editing and deleting
+// Types
 interface MenuItem {
   id: number;
   name: string;
@@ -26,6 +26,7 @@ interface MenuItem {
   image: string;
   available: boolean;
 }
+
 interface FoodPack {
   id: number;
   name: string;
@@ -34,9 +35,10 @@ interface FoodPack {
   price: number;
   type: string;
   generated: boolean;
+  reasoning?: string;
+  discountPercent?: number;
 }
 
-// Define MenuTrend type
 interface MenuTrend {
   trend: 'rising' | 'declining' | 'stable' | 'new'
   itemName: string
@@ -47,92 +49,47 @@ interface MenuTrend {
   recommendations: string[]
   category: string
   seasonality?: string
+  confidence: number
 }
 
 interface TrendSummary {
   totalTrends: number
   risingTrends: number
   decliningTrends: number
+  stableTrends: number
   newOpportunities: number
   estimatedRevenueImpact: number
 }
 
 export default function MenuManagementPage() {
+  // State for UI
   const [isAddItemOpen, setIsAddItemOpen] = useState(false)
   const [isAddPackOpen, setIsAddPackOpen] = useState(false)
   const [isGeneratingPacks, setIsGeneratingPacks] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("all")
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  // Sample menu items
-  const [menuItems, setMenuItems] = useState<MenuItem[]>([
-    {
-      id: 1,
-      name: "Grilled Salmon",
-      description: "Fresh Atlantic salmon grilled to perfection with herbs",
-      price: 24.99,
-      category: "Main Course",
-      image: "/placeholder.svg?height=100&width=100",
-      available: true,
-    },
-    {
-      id: 2,
-      name: "Caesar Salad",
-      description: "Crisp romaine lettuce with parmesan and croutons",
-      price: 12.99,
-      category: "Salad",
-      image: "/placeholder.svg?height=100&width=100",
-      available: true,
-    },
-    {
-      id: 3,
-      name: "Chocolate Cake",
-      description: "Rich chocolate cake with vanilla ice cream",
-      price: 8.99,
-      category: "Dessert",
-      image: "/placeholder.svg?height=100&width=100",
-      available: true,
-    },
-    {
-      id: 4,
-      name: "Coca Cola",
-      description: "Refreshing cola drink",
-      price: 2.99,
-      category: "Beverage",
-      image: "/placeholder.svg?height=100&width=100",
-      available: true,
-    },
-  ])
+  // State for data
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([])
+  const [categories, setCategories] = useState<string[]>(['all'])
+  const [existingPacks, setExistingPacks] = useState<FoodPack[]>([])
+  const [aiRecommendations, setAiRecommendations] = useState<FoodPack[]>([])
+  
+  // State for menu trends
+  const [menuTrends, setMenuTrends] = useState<MenuTrend[] | null>(null)
+  const [trendSummary, setTrendSummary] = useState<TrendSummary | null>(null)
+  const [isGeneratingTrends, setIsGeneratingTrends] = useState(false)
+  const [trendError, setTrendError] = useState<string | null>(null)
+  const [trendPeriod, setTrendPeriod] = useState<string>("month")
 
-  // Sample food packs
-  const [foodPacks, setFoodPacks] = useState<FoodPack[]>([
-    {
-      id: 1,
-      name: "Lunch Pack 1",
-      description: "Grilled Salmon + Coca Cola",
-      items: ["Grilled Salmon", "Coca Cola"],
-      price: 25.99,
-      type: "Pack 1",
-      generated: false,
-    },
-    {
-      id: 2,
-      name: "Family Pack",
-      description: "Caesar Salad + Coca Cola + Chocolate Cake",
-      items: ["Caesar Salad", "Coca Cola", "Chocolate Cake"],
-      price: 22.99,
-      type: "Pack 2",
-      generated: false,
-    },
-  ])
-
-  const [newItem, setNewItem] = useState<MenuItem>({
-    id: 0,
+  // State for forms
+  const [newItem, setNewItem] = useState<Partial<MenuItem>>({
     name: "",
     description: "",
     price: 0,
     category: "",
-    image: "",
     available: true,
   })
 
@@ -146,80 +103,241 @@ export default function MenuManagementPage() {
     generated: false,
   })
 
-  const categories = ["all", "Main Course", "Salad", "Dessert", "Beverage", "Appetizer"]
+  // State for editing
+  const [editingItem, setEditingItem] = useState<MenuItem | null>(null)
+  const [isEditItemOpen, setIsEditItemOpen] = useState(false)
+  const [editingPack, setEditingPack] = useState<FoodPack | null>(null)
+  const [isEditPackOpen, setIsEditPackOpen] = useState(false)
+  const [deletingPack, setDeletingPack] = useState<FoodPack | null>(null)
+  const [isDeletePackOpen, setIsDeletePackOpen] = useState(false)
 
-  const generateFoodPacks = async () => {
-    setIsGeneratingPacks(true)
-
+  // Fetch menu items from backend
+  const fetchMenuItems = async () => {
     try {
-      const response = await fetch("/api/generate-packs", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ menuItems }),
-      })
-
+      setIsLoading(true)
+      setError(null)
+      
+      const response = await fetch('/api/menu?restaurant_id=1')
       const data = await response.json()
-
-      if (data.packs) {
-        setFoodPacks((prev) => [...prev, ...data.packs])
+      
+      if (data.success) {
+        setMenuItems(data.data)
+        setCategories(data.categories)
+        console.log(`Loaded ${data.data.length} menu items`)
+      } else {
+        setError(data.error || 'Failed to fetch menu items')
       }
     } catch (error) {
-      console.error("Error generating packs:", error)
-      // Fallback to mock generated packs
-      const mockPacks = [
-        {
-          id: Date.now() + 1,
-          name: "AI Generated Pack 1",
-          description: "Grilled Salmon + Coca Cola (AI Recommended)",
-          items: ["Grilled Salmon", "Coca Cola"],
-          price: 24.99,
-          type: "Pack 1",
-          generated: true,
-        },
-        {
-          id: Date.now() + 2,
-          name: "AI Generated Pack 2",
-          description: "Caesar Salad + Coca Cola + Chocolate Cake (AI Recommended)",
-          items: ["Caesar Salad", "Coca Cola", "Chocolate Cake"],
-          price: 21.99,
-          type: "Pack 2",
-          generated: true,
-        },
-      ]
-      setFoodPacks((prev) => [...prev, ...mockPacks])
+      console.error('Error fetching menu items:', error)
+      setError('Failed to fetch menu items')
+    } finally {
+      setIsLoading(false)
     }
-
-    setIsGeneratingPacks(false)
   }
 
-  const handleAddItem = (e: React.FormEvent) => {
-    e.preventDefault()
-    const item = {
-      ...newItem,
-      id: Date.now(),
-      price: Number(newItem.price),
-      available: true,
+  // Fetch existing food packs
+  const fetchExistingPacks = async () => {
+    try {
+      const response = await fetch('/api/food-packs?restaurant_id=1&type=existing')
+      const data = await response.json()
+      
+      if (data.success) {
+        setExistingPacks(data.data)
+        console.log(`Loaded ${data.data.length} existing packs`)
+      }
+    } catch (error) {
+      console.error('Error fetching existing packs:', error)
     }
-    setMenuItems((prev) => [...prev, item])
-    setNewItem({ id: 0, name: "", description: "", price: 0, category: "", image: "", available: true })
-    setIsAddItemOpen(false)
   }
 
-  const handleAddPack = (e: React.FormEvent) => {
+  // Generate AI pack recommendations
+  const generateFoodPacks = async () => {
+    setIsGeneratingPacks(true)
+    try {
+      const response = await fetch('/api/food-packs?restaurant_id=1&type=recommendations')
+      const data = await response.json()
+      
+      if (data.success) {
+        setAiRecommendations(data.data)
+        console.log(`Generated ${data.data.length} AI pack recommendations`)
+      } else {
+        console.error('Failed to generate pack recommendations:', data.error)
+        setError(data.error || 'Failed to generate pack recommendations')
+      }
+    } catch (error) {
+      console.error('Error generating pack recommendations:', error)
+      setError('Failed to generate pack recommendations')
+    } finally {
+      setIsGeneratingPacks(false)
+    }
+  }
+
+  // Save selected AI pack to database
+  const saveSelectedPack = async (pack: FoodPack) => {
+    try {
+      const response = await fetch('/api/food-packs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          selectedPack: pack,
+          restaurantId: 1
+        })
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        // Remove from AI recommendations and add to existing packs
+        setAiRecommendations(prev => prev.filter(p => p.id !== pack.id))
+        setExistingPacks(prev => [...prev, { ...pack, generated: false }])
+        console.log('Pack saved successfully')
+      } else {
+        console.error('Failed to save pack:', data.error)
+        setError(data.error || 'Failed to save pack')
+      }
+    } catch (error) {
+      console.error('Error saving pack:', error)
+      setError('Failed to save pack')
+    }
+  }
+
+  // Generate menu trends
+  const generateMenuTrends = async () => {
+    setIsGeneratingTrends(true)
+    setTrendError(null)
+    
+    try {
+      const response = await fetch('/api/menu-trends', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          period: trendPeriod,
+          restaurantId: 1
+        })
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        setMenuTrends(data.data.trends)
+        setTrendSummary(data.data.summary)
+        console.log(`Generated ${data.data.trends.length} menu trend predictions`)
+      } else {
+        setTrendError(data.error || 'Failed to generate menu trends')
+      }
+    } catch (error) {
+      console.error('Error generating menu trends:', error)
+      setTrendError('Failed to generate menu trends')
+    } finally {
+      setIsGeneratingTrends(false)
+    }
+  }
+
+  // Handle add new menu item
+  const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault()
+    try {
+      const response = await fetch('/api/menu', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newItem.name,
+          description: newItem.description,
+          price: newItem.price,
+          category: newItem.category,
+          restaurantId: 1
+        })
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        await fetchMenuItems() // Refresh menu items
+        setNewItem({ name: "", description: "", price: 0, category: "", available: true })
+        setIsAddItemOpen(false)
+        console.log('Menu item added successfully')
+      } else {
+        console.error('Failed to add menu item:', data.error)
+        setError(data.error || 'Failed to add menu item')
+      }
+    } catch (error) {
+      console.error('Error adding menu item:', error)
+      setError('Failed to add menu item')
+    }
+  }
+
+  // Handle add new pack manually
+  const handleAddPack = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
     const pack = {
       ...newPack,
       id: Date.now(),
       price: Number(newPack.price),
       generated: false,
     }
-    setFoodPacks((prev) => [...prev, pack])
+    setExistingPacks((prev) => [...prev, pack])
     setNewPack({ id: 0, name: "", description: "", items: [], price: 0, type: "Pack 1", generated: false })
     setIsAddPackOpen(false)
   }
 
+  // Handle edit menu item
+  const handleEditItem = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingItem) return
+    
+    try {
+      const response = await fetch('/api/menu', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingItem)
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        await fetchMenuItems() // Refresh menu items
+        setEditingItem(null)
+        setIsEditItemOpen(false)
+        console.log('Menu item updated successfully')
+      } else {
+        console.error('Failed to update menu item:', data.error)
+        setError(data.error || 'Failed to update menu item')
+      }
+    } catch (error) {
+      console.error('Error updating menu item:', error)
+      setError('Failed to update menu item')
+    }
+  }
+
+  // Handle toggle menu availability
+  const toggleMenuAvailability = async (item: MenuItem) => {
+    try {
+      const response = await fetch('/api/menu', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: item.id,
+          available: !item.available
+        })
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        await fetchMenuItems() // Refresh menu items
+        console.log('Menu availability updated')
+      } else {
+        console.error('Failed to update menu availability:', data.error)
+        setError(data.error || 'Failed to update menu availability')
+      }
+    } catch (error) {
+      console.error('Error updating menu availability:', error)
+      setError('Failed to update menu availability')
+    }
+  }
+
+  // Filter menu items
   const filteredItems = menuItems.filter((item) => {
     const matchesSearch =
       item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -228,71 +346,30 @@ export default function MenuManagementPage() {
     return matchesSearch && matchesCategory
   })
 
-  // Mock menu sales data for trend predictions
-  const mockMenuSales = [
-    { name: "Grilled Salmon", sales: 245, revenue: 6125.5 },
-    { name: "Caesar Salad", sales: 189, revenue: 2453.11 },
-    { name: "Chocolate Cake", sales: 156, revenue: 1402.44 },
-    { name: "Margherita Pizza", sales: 134, revenue: 1943.0 },
-    { name: "Pasta Carbonara", sales: 98, revenue: 1661.1 },
-  ]
+  // Load data on component mount
+  useEffect(() => {
+    fetchMenuItems()
+    fetchExistingPacks()
+    generateMenuTrends()
+  }, [])
 
-  // Function to generate menu trends
-  const generateMenuTrends = async () => {
-    setIsGeneratingTrends(true)
-    setTrendError(null)
-    
-    try {
-      const response = await fetch("/api/generate-menu-trends", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          menuSales: mockMenuSales,
-          period: trendPeriod,
-        }),
-      })
-
-      const data = await response.json()
-      
-      if (data.trends) {
-        setMenuTrends(data.trends)
-        setTrendSummary(data.summary)
-      } else {
-        setTrendError(data.error || "Failed to generate menu trends")
-        setMenuTrends(null)
-        setTrendSummary(null)
-      }
-    } catch (error) {
-      console.error("Error generating menu trends:", error)
-      setTrendError("Failed to generate menu trends")
-      setMenuTrends(null)
-      setTrendSummary(null)
-    }
-    
-    setIsGeneratingTrends(false)
-  }
-
-  // Add state for editing and deleting
-  const [editingItem, setEditingItem] = useState<MenuItem | null>(null)
-  const [isEditItemOpen, setIsEditItemOpen] = useState(false)
-  const [editingPack, setEditingPack] = useState<FoodPack | null>(null)
-  const [isEditPackOpen, setIsEditPackOpen] = useState(false)
-  const [deletingPack, setDeletingPack] = useState<FoodPack | null>(null)
-  const [isDeletePackOpen, setIsDeletePackOpen] = useState(false)
-
-  // Menu trend states
-  const [menuTrends, setMenuTrends] = useState<MenuTrend[] | null>(null)
-  const [trendSummary, setTrendSummary] = useState<TrendSummary | null>(null)
-  const [isGeneratingTrends, setIsGeneratingTrends] = useState(false)
-  const [trendError, setTrendError] = useState<string | null>(null)
-  const [trendPeriod, setTrendPeriod] = useState<string>("month")
-
-  // Generate trends on component mount
+  // Update trends when period changes
   useEffect(() => {
     generateMenuTrends()
   }, [trendPeriod])
+
+  if (isLoading && menuItems.length === 0) {
+    return (
+      <DashboardLayout title="Menu Management">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-navy-blue mx-auto mb-4"></div>
+            <div className="text-gray-600">Loading menu data...</div>
+          </div>
+        </div>
+      </DashboardLayout>
+    )
+  }
 
   return (
     <DashboardLayout title="Menu Management">
@@ -318,6 +395,15 @@ export default function MenuManagementPage() {
             </Button>
           </div>
         </div>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-600" />
+              <span className="text-red-800">{error}</span>
+            </div>
+          </div>
+        )}
 
         <Tabs defaultValue="items" className="space-y-4">
           <TabsList>
@@ -367,115 +453,221 @@ export default function MenuManagementPage() {
                 <CardDescription>Manage your restaurant menu items</CardDescription>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Image</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Price</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredItems.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell>
-                          <img
-                            src={item.image || "/placeholder.svg"}
-                            alt={item.name}
-                            className="w-12 h-12 rounded-lg object-cover"
-                          />
-                        </TableCell>
-                        <TableCell className="font-medium">{item.name}</TableCell>
-                        <TableCell className="max-w-xs truncate">{item.description}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{item.category}</Badge>
-                        </TableCell>
-                        <TableCell>${item.price.toFixed(2)}</TableCell>
-                        <TableCell>
-                          <Badge className={item.available ? "bg-green-500" : "bg-red-500"}>
-                            {item.available ? "Available" : "Sold Out"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button variant="outline" size="sm" onClick={() => { setEditingItem(item); setIsEditItemOpen(true); }}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant={item.available ? "destructive" : "default"}
-                              size="sm"
-                              onClick={() => {
-                                setMenuItems((prev) => prev.map((m) => m.id === item.id ? { ...m, available: !m.available } : m))
-                              }}
-                            >
-                              {item.available ? "Mark Sold Out" : "Mark Available"}
-                            </Button>
-                          </div>
-                        </TableCell>
+                {filteredItems.length === 0 ? (
+                  <div className="text-center py-8">
+                    <div className="text-gray-400 mb-2">🍽️</div>
+                    <div className="text-gray-600">No menu items found</div>
+                    <Button 
+                      onClick={() => setIsAddItemOpen(true)} 
+                      variant="outline" 
+                      size="sm" 
+                      className="mt-3"
+                    >
+                      Add First Menu Item
+                    </Button>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Description</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Price</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredItems.map((item) => (
+                        <TableRow key={item.id}>
+                          <TableCell className="font-medium">{item.name}</TableCell>
+                          <TableCell className="max-w-xs truncate">{item.description}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{item.category}</Badge>
+                          </TableCell>
+                          <TableCell>Rp{item.price.toLocaleString()}</TableCell>
+                          <TableCell>
+                            <Badge className={item.available ? "bg-green-500" : "bg-red-500"}>
+                              {item.available ? "Available" : "Sold Out"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => { 
+                                  setEditingItem(item); 
+                                  setIsEditItemOpen(true); 
+                                }}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant={item.available ? "destructive" : "default"}
+                                size="sm"
+                                onClick={() => toggleMenuAvailability(item)}
+                              >
+                                {item.available ? "Mark Sold Out" : "Mark Available"}
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
 
           <TabsContent value="packs" className="space-y-4">
-            {/* Food Packs */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Food Packs ({foodPacks.length})</CardTitle>
-                <CardDescription>Manage your restaurant food pack combinations</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {foodPacks.map((pack) => (
-                    <Card key={pack.id} className="relative">
-                      <CardHeader>
-                        <div className="flex justify-between items-start">
-                          <CardTitle className="text-lg">{pack.name}</CardTitle>
-                          {pack.generated && (
+            {/* AI Recommendations */}
+            {aiRecommendations.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Sparkles className="h-5 w-5 text-purple-500" />
+                    AI Pack Recommendations
+                  </CardTitle>
+                  <CardDescription>Smart pack suggestions based on your sales data</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {aiRecommendations.map((pack) => (
+                      <Card key={pack.id} className="relative border-purple-200 bg-purple-50">
+                        <CardHeader>
+                          <div className="flex justify-between items-start">
+                            <CardTitle className="text-lg">{pack.name}</CardTitle>
                             <Badge className="bg-purple-500">
                               <Sparkles className="h-3 w-3 mr-1" />
-                              AI Generated
+                              AI Recommended
                             </Badge>
-                          )}
-                        </div>
-                        <CardDescription>{pack.description}</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-2">
-                          <div>
-                            <Badge variant="outline">{pack.type}</Badge>
                           </div>
-                          <div>
-                            <p className="text-sm text-gray-600">Items:</p>
-                            <ul className="text-sm">
-                              {pack.items.map((item, index) => (
-                                <li key={index}>• {item}</li>
-                              ))}
-                            </ul>
-                          </div>
-                          <div className="flex justify-between items-center pt-2">
-                            <span className="text-lg font-bold">${pack.price.toFixed(2)}</span>
-                            <div className="flex gap-2">
-                              <Button variant="outline" size="sm" onClick={() => { setEditingPack(pack); setIsEditPackOpen(true); }}>
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button variant="outline" size="sm" onClick={() => { setDeletingPack(pack); setIsDeletePackOpen(true); }}>
-                                <Trash2 className="h-4 w-4" />
+                          <CardDescription>{pack.description}</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-2">
+                            <div>
+                              <Badge variant="outline">{pack.type}</Badge>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">Items:</p>
+                              <ul className="text-sm">
+                                {pack.items.map((item, index) => (
+                                  <li key={index}>• {item}</li>
+                                ))}
+                              </ul>
+                            </div>
+                            {pack.reasoning && (
+                              <div className="text-xs text-purple-700 bg-purple-100 p-2 rounded">
+                                <strong>AI Reasoning:</strong> {pack.reasoning}
+                              </div>
+                            )}
+                            <div className="flex justify-between items-center pt-2">
+                              <div>
+                                <span className="text-lg font-bold">Rp{pack.price.toLocaleString()}</span>
+                                {pack.discountPercent && (
+                                  <Badge className="ml-2 bg-green-500 text-xs">
+                                    {pack.discountPercent}% OFF
+                                  </Badge>
+                                )}
+                              </div>
+                              <Button 
+                                size="sm"
+                                onClick={() => saveSelectedPack(pack)}
+                                className="bg-purple-600 hover:bg-purple-700"
+                              >
+                                <CheckCircle className="h-4 w-4 mr-1" />
+                                Select
                               </Button>
                             </div>
                           </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Current Food Packs */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Current Food Packs ({existingPacks.length})</CardTitle>
+                <CardDescription>Your restaurant's food pack combinations</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {existingPacks.length === 0 ? (
+                  <div className="text-center py-8">
+                    <div className="text-gray-400 mb-2">📦</div>
+                    <div className="text-gray-600">No food packs created yet</div>
+                    <div className="flex gap-2 justify-center mt-3">
+                      <Button 
+                        onClick={() => setIsAddPackOpen(true)} 
+                        variant="outline" 
+                        size="sm"
+                      >
+                        Create Manual Pack
+                      </Button>
+                      <Button 
+                        onClick={generateFoodPacks} 
+                        variant="outline" 
+                        size="sm"
+                        disabled={isGeneratingPacks}
+                      >
+                        <Sparkles className="h-4 w-4 mr-1" />
+                        {isGeneratingPacks ? "Generating..." : "AI Generate"}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {existingPacks.map((pack) => (
+                      <Card key={pack.id} className="relative">
+                        <CardHeader>
+                          <div className="flex justify-between items-start">
+                            <CardTitle className="text-lg">{pack.name}</CardTitle>
+                            {pack.generated && (
+                              <Badge className="bg-purple-500">
+                                <Sparkles className="h-3 w-3 mr-1" />
+                                AI Generated
+                              </Badge>
+                            )}
+                          </div>
+                          <CardDescription>{pack.description}</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-2">
+                            <div>
+                              <Badge variant="outline">{pack.type}</Badge>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">Items:</p>
+                              <ul className="text-sm">
+                                {pack.items.map((item, index) => (
+                                  <li key={index}>• {item}</li>
+                                ))}
+                              </ul>
+                            </div>
+                            <div className="flex justify-between items-center pt-2">
+                              <span className="text-lg font-bold">Rp{pack.price.toLocaleString()}</span>
+                              <div className="flex gap-2">
+                                <Button variant="outline" size="sm" onClick={() => { setEditingPack(pack); setIsEditPackOpen(true); }}>
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button variant="outline" size="sm" onClick={() => { setDeletingPack(pack); setIsDeletePackOpen(true); }}>
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -552,7 +744,7 @@ export default function MenuManagementPage() {
                       </div>
                       <div className="text-center p-4 border rounded-lg bg-purple-50">
                         <h3 className="font-semibold text-lg text-purple-800">Revenue Impact</h3>
-                        <p className="text-2xl font-bold text-purple-600">${trendSummary.estimatedRevenueImpact.toLocaleString()}</p>
+                        <p className="text-2xl font-bold text-purple-600">Rp{trendSummary.estimatedRevenueImpact.toLocaleString()}</p>
                         <p className="text-xs text-purple-600">Estimated gain</p>
                       </div>
                     </div>
@@ -604,6 +796,10 @@ export default function MenuManagementPage() {
                                   {trend.growthRate > 0 ? '+' : ''}{trend.growthRate.toFixed(1)}%
                                 </span>
                               </div>
+                              <div className="flex justify-between text-sm">
+                                <span className="text-gray-600">Confidence:</span>
+                                <span className="font-semibold">{trend.confidence}%</span>
+                              </div>
                               {trend.seasonality && (
                                 <div className="text-xs text-gray-500">
                                   <strong>Seasonality:</strong> {trend.seasonality}
@@ -652,14 +848,14 @@ export default function MenuManagementPage() {
               <Label htmlFor="itemName">Item Name</Label>
               <Input
                 id="itemName"
-                value={newItem.name}
+                value={newItem.name || ""}
                 onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
                 required
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="itemCategory">Category</Label>
-              <Select value={newItem.category} onValueChange={(value) => setNewItem({ ...newItem, category: value })}>
+              <Select value={newItem.category || ""} onValueChange={(value) => setNewItem({ ...newItem, category: value })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
@@ -669,6 +865,10 @@ export default function MenuManagementPage() {
                       {category}
                     </SelectItem>
                   ))}
+                  <SelectItem value="Main Course">Main Course</SelectItem>
+                  <SelectItem value="Appetizer">Appetizer</SelectItem>
+                  <SelectItem value="Beverage">Beverage</SelectItem>
+                  <SelectItem value="Dessert">Dessert</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -677,32 +877,21 @@ export default function MenuManagementPage() {
             <Label htmlFor="itemDescription">Description</Label>
             <Textarea
               id="itemDescription"
-              value={newItem.description}
+              value={newItem.description || ""}
               onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
               required
             />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="itemPrice">Price ($)</Label>
-              <Input
-                id="itemPrice"
-                type="number"
-                step="0.01"
-                value={newItem.price}
-                onChange={(e) => setNewItem({ ...newItem, price: Number(e.target.value) })}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="itemImage">Image URL</Label>
-              <Input
-                id="itemImage"
-                value={newItem.image}
-                onChange={(e) => setNewItem({ ...newItem, image: e.target.value })}
-                placeholder="/placeholder.svg?height=100&width=100"
-              />
-            </div>
+          <div className="space-y-2">
+            <Label htmlFor="itemPrice">Price (Rp)</Label>
+            <Input
+              id="itemPrice"
+              type="number"
+              step="1000"
+              value={newItem.price || 0}
+              onChange={(e) => setNewItem({ ...newItem, price: Number(e.target.value) })}
+              required
+            />
           </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setIsAddItemOpen(false)}>
@@ -758,11 +947,11 @@ export default function MenuManagementPage() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="packPrice">Price ($)</Label>
+            <Label htmlFor="packPrice">Price (Rp)</Label>
             <Input
               id="packPrice"
               type="number"
-              step="0.01"
+              step="1000"
               value={Number(newPack.price) || 0}
               onChange={e => setNewPack({ ...newPack, price: Number(e.target.value) })}
               required
@@ -788,14 +977,7 @@ export default function MenuManagementPage() {
         size="lg"
       >
         {editingItem && (
-          <form
-            onSubmit={e => {
-              e.preventDefault()
-              setMenuItems(prev => prev.map(m => m.id === editingItem.id ? editingItem : m))
-              setIsEditItemOpen(false)
-            }}
-            className="space-y-4"
-          >
+          <form onSubmit={handleEditItem} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="editItemName">Item Name</Label>
@@ -816,6 +998,10 @@ export default function MenuManagementPage() {
                     {categories.slice(1).map(category => (
                       <SelectItem key={category} value={category}>{category}</SelectItem>
                     ))}
+                    <SelectItem value="Main Course">Main Course</SelectItem>
+                    <SelectItem value="Appetizer">Appetizer</SelectItem>
+                    <SelectItem value="Beverage">Beverage</SelectItem>
+                    <SelectItem value="Dessert">Dessert</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -829,27 +1015,16 @@ export default function MenuManagementPage() {
                 required
               />
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="editItemPrice">Price ($)</Label>
-                <Input
-                  id="editItemPrice"
-                  type="number"
-                  step="0.01"
-                  value={editingItem.price}
-                  onChange={e => setEditingItem({ ...editingItem!, price: Number(e.target.value) })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="editItemImage">Image URL</Label>
-                <Input
-                  id="editItemImage"
-                  value={editingItem.image}
-                  onChange={e => setEditingItem({ ...editingItem!, image: e.target.value })}
-                  placeholder="/placeholder.svg?height=100&width=100"
-                />
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="editItemPrice">Price (Rp)</Label>
+              <Input
+                id="editItemPrice"
+                type="number"
+                step="1000"
+                value={editingItem.price}
+                onChange={e => setEditingItem({ ...editingItem!, price: Number(e.target.value) })}
+                required
+              />
             </div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setIsEditItemOpen(false)}>
@@ -875,7 +1050,7 @@ export default function MenuManagementPage() {
           <form
             onSubmit={e => {
               e.preventDefault()
-              setFoodPacks(prev => prev.map(p => p.id === editingPack.id ? editingPack : p))
+              setExistingPacks(prev => prev.map(p => p.id === editingPack.id ? editingPack : p))
               setIsEditPackOpen(false)
             }}
             className="space-y-4"
@@ -914,11 +1089,11 @@ export default function MenuManagementPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="editPackPrice">Price ($)</Label>
+              <Label htmlFor="editPackPrice">Price (Rp)</Label>
               <Input
                 id="editPackPrice"
                 type="number"
-                step="0.01"
+                step="1000"
                 value={editingPack.price}
                 onChange={e => setEditingPack({ ...editingPack!, price: Number(e.target.value) })}
                 required
@@ -949,7 +1124,7 @@ export default function MenuManagementPage() {
             Cancel
           </Button>
           <Button type="button" className="bg-red-600 hover:bg-red-700" onClick={() => {
-            setFoodPacks(prev => prev.filter(p => p.id !== deletingPack?.id))
+            setExistingPacks(prev => prev.filter(p => p.id !== deletingPack?.id))
             setIsDeletePackOpen(false)
           }}>
             Delete

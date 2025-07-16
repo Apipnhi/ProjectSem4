@@ -7,7 +7,7 @@ const dbConfig = {
   port: parseInt(process.env.MYSQL_PORT || '8889'),
   user: process.env.MYSQL_USER || 'root',
   password: process.env.MYSQL_PASSWORD || 'root',
-  database: process.env.MYSQL_DATABASE || 'semester4',
+  database: process.env.MYSQL_DATABASE || 'restomate',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,

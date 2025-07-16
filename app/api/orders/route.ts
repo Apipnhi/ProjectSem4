@@ -1,3 +1,4 @@
+// app/api/orders/route.ts
 import { NextResponse } from "next/server"
 import { query, getAll, insert } from "@/lib/db"
 

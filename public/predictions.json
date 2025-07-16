@@ -1,81 +1,99 @@
 {
   "predictions": [
     {
-      "ingredient": "Santan Kelapa",
-      "currentStock": 15,
-      "predictedNeed": 30,
-      "recommendedOrder": 15,
-      "urgency": "high",
-      "reasoning": "Stok rendah dengan konsumsi tinggi untuk menu populer",
-      "estimatedCost": 225000
+      "ingredient": "Tomat",
+      "currentStock": 4,
+      "predictedNeed": 15,
+      "recommendedOrder": 11,
+      "urgency": "medium",
+      "reasoning": "Stok sedang (4) perlu diisi ulang untuk menu Gado-Gado",
+      "estimatedCost": 55000
     },
     {
-      "ingredient": "Nangka Muda",
-      "currentStock": 8,
-      "predictedNeed": 20,
-      "recommendedOrder": 12,
-      "urgency": "high",
-      "reasoning": "Stok rendah dengan konsumsi tinggi untuk menu populer",
-      "estimatedCost": 192000
+      "ingredient": "Sayur Campur",
+      "currentStock": 16,
+      "predictedNeed": 48,
+      "recommendedOrder": 32,
+      "urgency": "low",
+      "reasoning": "Stok cukup namun perlu monitoring untuk menu Gado-Gado",
+      "estimatedCost": 128000
     },
     {
-      "ingredient": "Daging Sapi",
-      "currentStock": 15,
-      "predictedNeed": 30,
-      "recommendedOrder": 15,
-      "urgency": "high",
-      "reasoning": "Stok rendah dengan konsumsi tinggi untuk menu populer",
-      "estimatedCost": 375000
+      "ingredient": "Ikan Gurame",
+      "currentStock": 5,
+      "predictedNeed": 15,
+      "recommendedOrder": 10,
+      "urgency": "medium",
+      "reasoning": "Stok sedang (5) perlu diisi ulang untuk menu Ikan Bakar",
+      "estimatedCost": 500000
     },
     {
-      "ingredient": "Rendang Daging",
-      "currentStock": 18,
-      "predictedNeed": 30,
+      "ingredient": "Timun",
+      "currentStock": 6,
+      "predictedNeed": 18,
       "recommendedOrder": 12,
       "urgency": "medium",
-      "reasoning": "Stok sedikit lebih tinggi, tetapi konsumsi masih tinggi",
-      "estimatedCost": 900000
-    },
-    {
-      "ingredient": "Tepung Terigu",
-      "currentStock": 25,
-      "predictedNeed": 30,
-      "recommendedOrder": 5,
-      "urgency": "low",
-      "reasoning": "Stok lebih tinggi, konsumsi relatif rendah",
-      "estimatedCost": 50000
+      "reasoning": "Stok sedang (6) perlu diisi ulang untuk menu Gado-Gado",
+      "estimatedCost": 36000
     },
     {
       "ingredient": "Santan Kental",
+      "currentStock": 9,
+      "predictedNeed": 27,
+      "recommendedOrder": 18,
+      "urgency": "low",
+      "reasoning": "Stok cukup namun perlu monitoring untuk menu Nasi Rendang",
+      "estimatedCost": 216000
+    },
+    {
+      "ingredient": "Sayur Segar",
       "currentStock": 12,
-      "predictedNeed": 20,
-      "recommendedOrder": 8,
-      "urgency": "high",
-      "reasoning": "Stok rendah dengan konsumsi tinggi untuk menu populer",
+      "predictedNeed": 36,
+      "recommendedOrder": 24,
+      "urgency": "low",
+      "reasoning": "Stok cukup namun perlu monitoring untuk menu Sayur Asem",
       "estimatedCost": 96000
     },
     {
-      "ingredient": "Daging Kambing",
-      "currentStock": 8,
-      "predictedNeed": 20,
-      "recommendedOrder": 12,
-      "urgency": "high",
-      "reasoning": "Stok rendah dengan konsumsi tinggi untuk menu populer",
-      "estimatedCost": 800000
+      "ingredient": "Sayur Kangkung",
+      "currentStock": 14,
+      "predictedNeed": 42,
+      "recommendedOrder": 28,
+      "urgency": "low",
+      "reasoning": "Stok cukup namun perlu monitoring untuk menu Nasi Pecel",
+      "estimatedCost": 84000
     },
     {
-      "ingredient": "Ayam Potong",
+      "ingredient": "Alpukat",
       "currentStock": 20,
-      "predictedNeed": 30,
-      "recommendedOrder": 10,
-      "urgency": "medium",
-      "reasoning": "Stok sedikit lebih tinggi, tetapi konsumsi masih tinggi",
-      "estimatedCost": 400000
+      "predictedNeed": 60,
+      "recommendedOrder": 40,
+      "urgency": "low",
+      "reasoning": "Stok cukup namun perlu monitoring untuk menu Jus Alpukat",
+      "estimatedCost": 280000
+    },
+    {
+      "ingredient": "Tauge",
+      "currentStock": 3,
+      "predictedNeed": 15,
+      "recommendedOrder": 12,
+      "urgency": "high",
+      "reasoning": "Stok sangat rendah (3) untuk menu Gado-Gado",
+      "estimatedCost": 48000
+    },
+    {
+      "ingredient": "Santan Murni",
+      "currentStock": 11,
+      "predictedNeed": 33,
+      "recommendedOrder": 22,
+      "urgency": "low",
+      "reasoning": "Stok cukup namun perlu monitoring untuk menu Gulai Kambing",
+      "estimatedCost": 176000
     }
   ],
   "summary": {
-    "totalIngredients": 8,
-    "highUrgency": 5,
-    "estimatedTotalCost": 1500000
+    "totalIngredients": 10,
+    "highUrgency": 1,
+    "estimatedTotalCost": 1619000
   }
 }
