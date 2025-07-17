@@ -1,491 +1,661 @@
-// app/api/sales-report/route.ts - Fixed TypeScript errors
+// app/api/sales-report/route.ts - Fixed version dengan schema database yang benar
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 
-interface SalesOverview {
-  daily: any[];
-  monthly: any[];
-  yearly: any[];
-  summary: {
-    totalSales: number;
-    totalOrders: number;
-    avgOrderValue: number;
-    growthRate: number;
-  };
+// Enhanced interfaces with comprehensive metrics
+interface SalesData {
+  date?: string;
+  month?: string;
+  month_name?: string;
+  year?: string | number;
+  sales: number;
+  orders: number;
+  avgOrder: number;
+  // COMPREHENSIVE ALL TIME METRICS
+  cumulative_sales?: number;
+  growth_rate?: number;
+  market_share?: number;
+  customer_acquisition?: number;
+  retention_rate?: number;
+  seasonal_index?: number;
 }
 
-interface TopProducts {
+interface TopProduct {
   id_menu: number;
   nama_menu: string;
   total_sales: number;
   total_quantity: number;
   total_revenue: number;
   avg_price: number;
-  category: string;
+  growth_rate?: number;
+  market_share?: number;
+  popularity_index?: number;
 }
 
-interface RushHourData {
-  hour: string;
-  count: number;
-}
-
-interface CustomerFeedback {
-  id_feedback: number;
-  id_customer: number;
-  id_restaurant: number;
+interface Feedback {
+  id: number;
+  customer_name: string;
   rating: number;
   comment: string;
-  feedback_date: string;
-  status: string;
-  customer_name: string;
-  restaurant_name: string;
+  date: string;
+  sentiment_score?: number;
+  category?: string;
 }
 
 interface FeedbackSummary {
-  total_feedback: number;
-  avg_rating: number;
-  five_star: number;
-  four_star: number;
-  three_star: number;
-  two_star: number;
-  one_star: number;
-  recent_feedback: number;
-  pending_feedback: number;
+  totalFeedback: number;
+  averageRating: number;
+  ratingDistribution: Record<number, number>;
+  sentimentAnalysis: {
+    positive: number;
+    neutral: number;
+    negative: number;
+  };
+  trendData: Array<{
+    month: string;
+    avgRating: number;
+    count: number;
+  }>;
 }
 
-// Get daily sales data
-async function getDailySales(): Promise<any[]> {
+interface SalesOverview {
+  daily: SalesData[];
+  monthly: SalesData[];
+  yearly: SalesData[];
+  summary: {
+    totalSales: number;
+    totalOrders: number;
+    avgOrderValue: number;
+    growthRate: number;
+    customerLifetimeValue: number;
+    marketPenetration: number;
+    seasonalityIndex: number;
+    revenuePerCustomer: number;
+  };
+}
+
+// Get comprehensive daily sales data
+async function getComprehensiveDailySales(): Promise<SalesData[]> {
   try {
     const sql = `
+      WITH daily_aggregates AS (
+        SELECT 
+          DATE(c.Tanggal_Order) as date,
+          SUM(c.Harga_Total) as total_sales,
+          COUNT(c.Invoice_Id) as total_orders,
+          AVG(c.Harga_Total) as avg_order
+        FROM Customer c
+        WHERE c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+        GROUP BY DATE(c.Tanggal_Order)
+      )
       SELECT 
-        DATE(c.Tanggal_Order) as date,
-        COALESCE(SUM(c.Harga_Total), 0) as sales,
-        COUNT(c.Invoice_Id) as orders,
-        COALESCE(AVG(c.Harga_Total), 0) as avgOrder
-      FROM Customer c
-      WHERE c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-      GROUP BY DATE(c.Tanggal_Order)
-      ORDER BY DATE(c.Tanggal_Order) ASC
+        da.date,
+        da.total_sales as sales,
+        da.total_orders as orders,
+        da.avg_order as avgOrder,
+        
+        -- CUMULATIVE SALES
+        SUM(da.total_sales) OVER (ORDER BY da.date) as cumulative_sales,
+        
+        -- DAILY GROWTH RATE
+        CASE 
+          WHEN LAG(da.total_sales) OVER (ORDER BY da.date) > 0
+          THEN ((da.total_sales - LAG(da.total_sales) OVER (ORDER BY da.date)) / 
+                LAG(da.total_sales) OVER (ORDER BY da.date) * 100)
+          ELSE 0 
+        END as growth_rate,
+        
+        -- DAILY MARKET SHARE
+        da.total_sales * 100.0 / NULLIF((SELECT MAX(total_sales) FROM daily_aggregates), 0) as market_share,
+        
+        -- SEASONAL INDEX (day vs weekly average)
+        da.total_sales / NULLIF((
+          SELECT AVG(da2.total_sales) 
+          FROM daily_aggregates da2 
+          WHERE da2.date BETWEEN DATE_SUB(da.date, INTERVAL 7 DAY) AND da.date
+        ), 0) * 100 as seasonal_index
+        
+      FROM daily_aggregates da
+      ORDER BY da.date ASC
     `;
     
-    console.log('Executing daily sales query...');
+    console.log('📊 Executing comprehensive daily sales analysis...');
     const results = await query(sql);
-    console.log(`Daily sales results:`, results);
-    return results as any[];
+    console.log(`✅ Daily sales results with ALL TIME metrics:`, results.length);
+    return results as SalesData[];
   } catch (error) {
-    console.error('Error in getDailySales:', error);
+    console.error('❌ Error in getComprehensiveDailySales:', error);
     throw error;
   }
 }
 
-// Get monthly sales data
-async function getMonthlySales(): Promise<any[]> {
+// Fixed getComprehensiveMonthlySales function
+async function getComprehensiveMonthlySales(): Promise<SalesData[]> {
   try {
     const sql = `
+      WITH monthly_aggregates AS (
+        SELECT 
+          DATE_FORMAT(c.Tanggal_Order, '%Y-%m') as month,
+          MONTHNAME(c.Tanggal_Order) as month_name,
+          SUM(c.Harga_Total) as total_sales,
+          COUNT(c.Invoice_Id) as total_orders,
+          AVG(c.Harga_Total) as avg_order,
+          YEAR(c.Tanggal_Order) as year_ref
+        FROM Customer c
+        GROUP BY DATE_FORMAT(c.Tanggal_Order, '%Y-%m'), MONTHNAME(c.Tanggal_Order), YEAR(c.Tanggal_Order)
+      ),
+      monthly_metrics AS (
+        SELECT 
+          ma.month,
+          ma.month_name,
+          ma.total_sales as sales,
+          ma.total_orders as orders,
+          ma.avg_order as avgOrder,
+          
+          -- CUMULATIVE SALES
+          SUM(ma.total_sales) OVER (ORDER BY ma.month) as cumulative_sales,
+          
+          -- GROWTH RATE
+          CASE 
+            WHEN LAG(ma.total_sales) OVER (ORDER BY ma.month) > 0
+            THEN ((ma.total_sales - LAG(ma.total_sales) OVER (ORDER BY ma.month)) / 
+                  LAG(ma.total_sales) OVER (ORDER BY ma.month) * 100)
+            ELSE 0 
+          END as growth_rate,
+          
+          -- MARKET SHARE
+          ma.total_sales * 100.0 / NULLIF((SELECT MAX(total_sales) FROM monthly_aggregates), 0) as market_share,
+          
+          -- SEASONAL INDEX (month vs annual average)
+          ma.total_sales / NULLIF((
+            SELECT SUM(ma2.total_sales) / 12 
+            FROM monthly_aggregates ma2 
+            WHERE ma2.year_ref = ma.year_ref
+          ), 0) * 100 as seasonal_index,
+          
+          ma.year_ref
+        FROM monthly_aggregates ma
+      ),
+      customer_acquisition AS (
+        SELECT 
+          first_month,
+          COUNT(DISTINCT Invoice_Id) as new_customers
+        FROM (
+          SELECT 
+            c.Invoice_Id, 
+            MIN(DATE_FORMAT(c.Tanggal_Order, '%Y-%m')) as first_month
+          FROM Customer c
+          GROUP BY c.Invoice_Id
+        ) first_customers
+        GROUP BY first_month
+      ),
+      retention_data AS (
+        SELECT 
+          DATE_FORMAT(c.Tanggal_Order, '%Y-%m') as month,
+          COUNT(DISTINCT CASE 
+            WHEN EXISTS (
+              SELECT 1 FROM Customer c2 
+              WHERE c2.Invoice_Id = c.Invoice_Id 
+                AND DATE_FORMAT(c2.Tanggal_Order, '%Y-%m') < DATE_FORMAT(c.Tanggal_Order, '%Y-%m')
+            ) THEN c.Invoice_Id 
+          END) * 100.0 / NULLIF(COUNT(DISTINCT c.Invoice_Id), 0) as retention_rate
+        FROM Customer c
+        GROUP BY DATE_FORMAT(c.Tanggal_Order, '%Y-%m')
+      )
       SELECT 
-        DATE_FORMAT(c.Tanggal_Order, '%Y-%m') as month,
-        MONTHNAME(c.Tanggal_Order) as month_name,
-        COALESCE(SUM(c.Harga_Total), 0) as sales,
-        COUNT(c.Invoice_Id) as orders,
-        COALESCE(AVG(c.Harga_Total), 0) as avgOrder
-      FROM Customer c
-      WHERE c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-      GROUP BY DATE_FORMAT(c.Tanggal_Order, '%Y-%m'), MONTHNAME(c.Tanggal_Order)
+        mm.month,
+        mm.month_name,
+        mm.sales,
+        mm.orders,
+        mm.avgOrder,
+        mm.cumulative_sales,
+        mm.growth_rate,
+        mm.market_share,
+        COALESCE(ca.new_customers, 0) as customer_acquisition,
+        COALESCE(rd.retention_rate, 0) as retention_rate,
+        mm.seasonal_index
+      FROM monthly_metrics mm
+      LEFT JOIN customer_acquisition ca ON mm.month = ca.first_month
+      LEFT JOIN retention_data rd ON mm.month = rd.month
+      ORDER BY mm.month ASC
+    `;
+    
+    console.log('📅 Executing comprehensive monthly sales analysis...');
+    const results = await query(sql);
+    console.log(`✅ Monthly sales results with ALL TIME metrics:`, results.length);
+    return results as SalesData[];
+  } catch (error) {
+    console.error('❌ Error in getComprehensiveMonthlySales:', error);
+    throw error;
+  }
+}
+
+// Fixed getComprehensiveYearlySales function
+async function getComprehensiveYearlySales(): Promise<SalesData[]> {
+  try {
+    const sql = `
+      WITH yearly_aggregates AS (
+        SELECT 
+          YEAR(c.Tanggal_Order) as year,
+          SUM(c.Harga_Total) as total_sales,
+          COUNT(c.Invoice_Id) as total_orders,
+          AVG(c.Harga_Total) as avg_order
+        FROM Customer c
+        GROUP BY YEAR(c.Tanggal_Order)
+      ),
+      yearly_metrics AS (
+        SELECT 
+          ya.year,
+          ya.total_sales as sales,
+          ya.total_orders as orders,
+          ya.avg_order as avgOrder,
+          
+          -- CUMULATIVE SALES
+          SUM(ya.total_sales) OVER (ORDER BY ya.year) as cumulative_sales,
+          
+          -- GROWTH RATE
+          CASE 
+            WHEN LAG(ya.total_sales) OVER (ORDER BY ya.year) > 0
+            THEN ((ya.total_sales - LAG(ya.total_sales) OVER (ORDER BY ya.year)) / 
+                  LAG(ya.total_sales) OVER (ORDER BY ya.year) * 100)
+            ELSE 0 
+          END as growth_rate,
+          
+          -- MARKET SHARE (normalized performance)
+          ya.total_sales * 100.0 / NULLIF((SELECT MAX(total_sales) FROM yearly_aggregates), 0) as market_share,
+          
+          -- BASELINE SEASONAL INDEX
+          100 as seasonal_index
+        FROM yearly_aggregates ya
+      ),
+      customer_acquisition AS (
+        SELECT 
+          first_year,
+          COUNT(DISTINCT Invoice_Id) as new_customers
+        FROM (
+          SELECT 
+            c.Invoice_Id, 
+            MIN(YEAR(c.Tanggal_Order)) as first_year
+          FROM Customer c
+          GROUP BY c.Invoice_Id
+        ) first_customers
+        GROUP BY first_year
+      ),
+      retention_data AS (
+        SELECT 
+          YEAR(c.Tanggal_Order) as year,
+          COUNT(DISTINCT CASE 
+            WHEN EXISTS (
+              SELECT 1 FROM Customer c2 
+              WHERE c2.Invoice_Id = c.Invoice_Id 
+                AND YEAR(c2.Tanggal_Order) < YEAR(c.Tanggal_Order)
+            ) THEN c.Invoice_Id 
+          END) * 100.0 / NULLIF(COUNT(DISTINCT c.Invoice_Id), 0) as retention_rate
+        FROM Customer c
+        GROUP BY YEAR(c.Tanggal_Order)
+      )
+      SELECT 
+        ym.year,
+        ym.sales,
+        ym.orders,
+        ym.avgOrder,
+        ym.cumulative_sales,
+        ym.growth_rate,
+        ym.market_share,
+        COALESCE(ca.new_customers, 0) as customer_acquisition,
+        COALESCE(rd.retention_rate, 0) as retention_rate,
+        ym.seasonal_index
+      FROM yearly_metrics ym
+      LEFT JOIN customer_acquisition ca ON ym.year = ca.first_year
+      LEFT JOIN retention_data rd ON ym.year = rd.year
+      ORDER BY ym.year ASC
+    `;
+    
+    console.log('📈 Executing comprehensive yearly sales analysis...');
+    const results = await query(sql);
+    console.log(`✅ Yearly sales results with ALL TIME metrics:`, results.length);
+    return results as SalesData[];
+  } catch (error) {
+    console.error('❌ Error in getComprehensiveYearlySales:', error);
+    throw error;
+  }
+}
+
+// Get comprehensive top products with ALL TIME analysis
+async function getComprehensiveTopProducts(): Promise<TopProduct[]> {
+  try {
+    const sql = `
+      WITH product_aggregates AS (
+        SELECT 
+          m.Id_Menu as id_menu,
+          m.Nama_Menu as nama_menu,
+          m.Harga as menu_price,
+          COUNT(mm.id_customer) as total_sales,
+          COALESCE(SUM(mm.kuantitas), 0) as total_quantity,
+          COALESCE(SUM(mm.kuantitas * m.Harga), 0) as total_revenue
+        FROM menu m
+        LEFT JOIN MEMESAN_MENU mm ON m.Id_Menu = mm.id_menu
+        LEFT JOIN Customer c ON mm.id_customer = c.Invoice_Id
+        WHERE m.Status = 1
+        GROUP BY m.Id_Menu, m.Nama_Menu, m.Harga
+        HAVING total_quantity > 0
+      )
+      SELECT 
+        pa.id_menu,
+        pa.nama_menu,
+        pa.total_sales,
+        pa.total_quantity,
+        pa.total_revenue,
+        pa.menu_price as avg_price,
+        
+        -- GROWTH RATE (simplified as static for products)
+        0 as growth_rate,
+        
+        -- MARKET SHARE
+        pa.total_revenue * 100.0 / NULLIF((SELECT SUM(total_revenue) FROM product_aggregates), 0) as market_share,
+        
+        -- POPULARITY INDEX (normalized sales volume)
+        pa.total_quantity * 100.0 / NULLIF((SELECT MAX(total_quantity) FROM product_aggregates), 0) as popularity_index
+        
+      FROM product_aggregates pa
+      ORDER BY pa.total_revenue DESC
+      LIMIT 25
+    `;
+    
+    console.log('🍽️ Executing comprehensive top products analysis...');
+    const results = await query(sql);
+    console.log(`✅ Top products results with ALL TIME metrics:`, results.length);
+    return results as TopProduct[];
+  } catch (error) {
+    console.error('❌ Error in getComprehensiveTopProducts:', error);
+    throw error;
+  }
+}
+
+// Fixed getComprehensiveFeedback function with correct table name
+async function getComprehensiveFeedback(): Promise<{
+  feedback: Feedback[];
+  summary: FeedbackSummary;
+}> {
+  try {
+    // Get feedback data from CUSTOMER_FEEDBACK table (correct table name)
+    const feedbackSql = `
+      SELECT 
+        cf.id_feedback as id,
+        CONCAT('Customer ', cf.id_customer) as customer_name,
+        cf.rating,
+        cf.comment,
+        cf.feedback_date as date,
+        
+        -- SENTIMENT SCORE (simplified based on rating)
+        CASE 
+          WHEN cf.rating >= 4 THEN 1
+          WHEN cf.rating = 3 THEN 0
+          ELSE -1
+        END as sentiment_score,
+        
+        -- CATEGORY (based on rating)
+        CASE 
+          WHEN cf.rating >= 4 THEN 'positive'
+          WHEN cf.rating = 3 THEN 'neutral'
+          ELSE 'negative'
+        END as category
+        
+      FROM CUSTOMER_FEEDBACK cf
+      WHERE cf.status = 'approved'
+      ORDER BY cf.feedback_date DESC
+      LIMIT 100
+    `;
+    
+    const feedbackResults = await query(feedbackSql);
+    
+    // Get summary data from CUSTOMER_FEEDBACK table
+    const summarySql = `
+      SELECT 
+        COUNT(*) as totalFeedback,
+        AVG(rating) as averageRating,
+        SUM(CASE WHEN rating = 1 THEN 1 ELSE 0 END) as rating1,
+        SUM(CASE WHEN rating = 2 THEN 1 ELSE 0 END) as rating2,
+        SUM(CASE WHEN rating = 3 THEN 1 ELSE 0 END) as rating3,
+        SUM(CASE WHEN rating = 4 THEN 1 ELSE 0 END) as rating4,
+        SUM(CASE WHEN rating = 5 THEN 1 ELSE 0 END) as rating5,
+        SUM(CASE WHEN rating >= 4 THEN 1 ELSE 0 END) as positive,
+        SUM(CASE WHEN rating = 3 THEN 1 ELSE 0 END) as neutral,
+        SUM(CASE WHEN rating <= 2 THEN 1 ELSE 0 END) as negative
+      FROM CUSTOMER_FEEDBACK
+      WHERE status = 'approved'
+    `;
+    
+    const summaryResults = await query(summarySql);
+    const summary = summaryResults[0];
+    
+    // Get trend data from CUSTOMER_FEEDBACK table
+    const trendSql = `
+      SELECT 
+        DATE_FORMAT(feedback_date, '%Y-%m') as month,
+        AVG(rating) as avgRating,
+        COUNT(*) as count
+      FROM CUSTOMER_FEEDBACK
+      WHERE feedback_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+        AND status = 'approved'
+      GROUP BY DATE_FORMAT(feedback_date, '%Y-%m')
       ORDER BY month ASC
     `;
     
-    console.log('Executing monthly sales query...');
-    const results = await query(sql);
-    console.log(`Monthly sales results:`, results);
-    return results as any[];
-  } catch (error) {
-    console.error('Error in getMonthlySales:', error);
-    throw error;
-  }
-}
-
-// Get yearly sales data
-async function getYearlySales(): Promise<any[]> {
-  try {
-    const sql = `
-      SELECT 
-        YEAR(c.Tanggal_Order) as year,
-        COALESCE(SUM(c.Harga_Total), 0) as sales,
-        COUNT(c.Invoice_Id) as orders,
-        COALESCE(AVG(c.Harga_Total), 0) as avgOrder
-      FROM Customer c
-      GROUP BY YEAR(c.Tanggal_Order)
-      ORDER BY year ASC
-    `;
+    const trendResults = await query(trendSql);
     
-    console.log('Executing yearly sales query...');
-    const results = await query(sql);
-    console.log(`Yearly sales results:`, results);
-    return results as any[];
-  } catch (error) {
-    console.error('Error in getYearlySales:', error);
-    throw error;
-  }
-}
-
-// Get top selling products
-async function getTopProducts(): Promise<TopProducts[]> {
-  try {
-    const sql = `
-      SELECT 
-        m.Id_Menu as id_menu,
-        m.Nama_Menu as nama_menu,
-        COUNT(mm.id_customer) as total_sales,
-        COALESCE(SUM(mm.kuantitas), 0) as total_quantity,
-        COALESCE(SUM(mm.kuantitas * m.Harga), 0) as total_revenue,
-        m.Harga as avg_price,
-        m.Kategori as category
-      FROM menu m
-      LEFT JOIN MEMESAN_MENU mm ON m.Id_Menu = mm.id_menu
-      LEFT JOIN Customer c ON mm.id_customer = c.Invoice_Id
-      WHERE c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH) OR c.Tanggal_Order IS NULL
-      GROUP BY m.Id_Menu, m.Nama_Menu, m.Harga, m.Kategori
-      HAVING total_quantity > 0
-      ORDER BY total_revenue DESC
-      LIMIT 10
-    `;
+    console.log('💬 Feedback analysis completed successfully');
     
-    console.log('Executing top products query...');
-    const results = await query(sql);
-    console.log(`Top products results:`, results);
-    return results as TopProducts[];
-  } catch (error) {
-    console.error('Error in getTopProducts:', error);
-    return [];
-  }
-}
-
-// Get rush hour data
-async function getRushHourData(): Promise<RushHourData[]> {
-  try {
-    const checkDataSql = `
-      SELECT COUNT(*) as total_orders
-      FROM Customer c
-      WHERE c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-    `;
-    
-    const totalOrdersResult = await query(checkDataSql);
-    const totalOrders = totalOrdersResult[0]?.total_orders || 0;
-    
-    console.log('Total orders for rush hour analysis:', totalOrders);
-    
-    const hourData: RushHourData[] = [];
-    const peakHours = [12, 13, 18, 19, 20];
-    
-    for (let hour = 0; hour < 24; hour++) {
-      let count = Math.floor(Math.random() * 3);
-      
-      if (peakHours.includes(hour)) {
-        const peakMultiplier = totalOrders > 0 ? Math.min(totalOrders / 10, 20) : 10;
-        count += Math.floor(Math.random() * peakMultiplier) + 5;
-      } else if (hour >= 6 && hour <= 22) {
-        const businessMultiplier = totalOrders > 0 ? Math.min(totalOrders / 20, 8) : 5;
-        count += Math.floor(Math.random() * businessMultiplier) + 1;
-      }
-      
-      hourData.push({
-        hour: `${hour.toString().padStart(2, '0')}:00`,
-        count: count
-      });
-    }
-    
-    console.log('Rush hour data generated:', hourData);
-    return hourData;
-  } catch (error) {
-    console.error('Error in getRushHourData:', error);
-    return [];
-  }
-}
-
-// Get customer feedback with proper type handling
-async function getCustomerFeedback(
-  ratingParam: string | null, 
-  statusParam: string | null, 
-  sortByParam: string | null, 
-  limitParam: number
-): Promise<CustomerFeedback[]> {
-  try {
-    let sql = `
-      SELECT 
-        cf.id_feedback,
-        cf.id_customer,
-        cf.id_restaurant,
-        cf.rating,
-        cf.comment,
-        cf.feedback_date,
-        cf.status,
-        CONCAT('Customer #', cf.id_customer) as customer_name,
-        COALESCE(r.email, CONCAT('Restaurant #', cf.id_restaurant)) as restaurant_name
-      FROM CUSTOMER_FEEDBACK cf
-      LEFT JOIN RESTAURANT r ON cf.id_restaurant = r.id_restaurant
-      WHERE 1=1
-    `;
-
-    const params: any[] = [];
-
-    // Handle status filter
-    const status = statusParam || 'approved';
-    if (status && status !== 'all') {
-      sql += ' AND cf.status = ?';
-      params.push(status);
-    }
-
-    // Handle rating filter
-    if (ratingParam && ratingParam !== 'all') {
-      const ratingNum = parseInt(ratingParam);
-      if (!isNaN(ratingNum)) {
-        sql += ' AND cf.rating = ?';
-        params.push(ratingNum);
-      }
-    }
-
-    // Handle sorting
-    const sortBy = sortByParam || 'latest';
-    if (sortBy === 'latest') {
-      sql += ' ORDER BY cf.feedback_date DESC';
-    } else if (sortBy === 'oldest') {
-      sql += ' ORDER BY cf.feedback_date ASC';
-    } else if (sortBy === 'rating_high') {
-      sql += ' ORDER BY cf.rating DESC, cf.feedback_date DESC';
-    } else if (sortBy === 'rating_low') {
-      sql += ' ORDER BY cf.rating ASC, cf.feedback_date DESC';
-    } else {
-      sql += ' ORDER BY cf.feedback_date DESC';
-    }
-
-    sql += ' LIMIT ?';
-    params.push(limitParam);
-
-    console.log('Feedback SQL Query:', sql);
-    console.log('Parameters:', params);
-
-    const feedback = await query(sql, params) as CustomerFeedback[];
-    console.log(`Found ${feedback.length} feedback entries`);
-
-    return feedback;
-  } catch (error) {
-    console.error('Error in getCustomerFeedback:', error);
-    return [];
-  }
-}
-
-// Get feedback summary statistics
-async function getFeedbackSummary(): Promise<FeedbackSummary> {
-  try {
-    const summarySQL = `
-      SELECT 
-        COUNT(*) as total_feedback,
-        COALESCE(AVG(rating), 0) as avg_rating,
-        SUM(CASE WHEN rating = 5 THEN 1 ELSE 0 END) as five_star,
-        SUM(CASE WHEN rating = 4 THEN 1 ELSE 0 END) as four_star,
-        SUM(CASE WHEN rating = 3 THEN 1 ELSE 0 END) as three_star,
-        SUM(CASE WHEN rating = 2 THEN 1 ELSE 0 END) as two_star,
-        SUM(CASE WHEN rating = 1 THEN 1 ELSE 0 END) as one_star,
-        SUM(CASE WHEN feedback_date >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) as recent_feedback,
-        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_feedback
-      FROM CUSTOMER_FEEDBACK
-    `;
-
-    const summary = await query(summarySQL) as any[];
-    console.log('Feedback summary:', summary[0]);
-
-    return summary[0] || {
-      total_feedback: 0,
-      avg_rating: 0,
-      five_star: 0,
-      four_star: 0,
-      three_star: 0,
-      two_star: 0,
-      one_star: 0,
-      recent_feedback: 0,
-      pending_feedback: 0
-    };
-  } catch (error) {
-    console.error('Error in getFeedbackSummary:', error);
     return {
-      total_feedback: 0,
-      avg_rating: 0,
-      five_star: 0,
-      four_star: 0,
-      three_star: 0,
-      two_star: 0,
-      one_star: 0,
-      recent_feedback: 0,
-      pending_feedback: 0
+      feedback: feedbackResults as Feedback[],
+      summary: {
+        totalFeedback: Number(summary.totalFeedback || 0),
+        averageRating: Number(summary.averageRating || 0),
+        ratingDistribution: {
+          1: Number(summary.rating1 || 0),
+          2: Number(summary.rating2 || 0),
+          3: Number(summary.rating3 || 0),
+          4: Number(summary.rating4 || 0),
+          5: Number(summary.rating5 || 0)
+        },
+        sentimentAnalysis: {
+          positive: Number(summary.positive || 0),
+          neutral: Number(summary.neutral || 0),
+          negative: Number(summary.negative || 0)
+        },
+        trendData: trendResults as Array<{
+          month: string;
+          avgRating: number;
+          count: number;
+        }>
+      }
+    };
+  } catch (error) {
+    console.error('❌ Error in getComprehensiveFeedback:', error);
+    // Return empty data instead of throwing error to prevent API from failing
+    return {
+      feedback: [],
+      summary: {
+        totalFeedback: 0,
+        averageRating: 0,
+        ratingDistribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+        sentimentAnalysis: { positive: 0, neutral: 0, negative: 0 },
+        trendData: []
+      }
     };
   }
 }
 
-// Calculate sales summary and growth rate
-async function getSalesSummary(): Promise<any> {
+// Enhanced sales summary with ALL TIME metrics
+async function getEnhancedSalesSummary() {
   try {
     const sql = `
+      WITH current_period AS (
+        SELECT 
+          SUM(c.Harga_Total) as totalSales,
+          COUNT(c.Invoice_Id) as totalOrders,
+          AVG(c.Harga_Total) as avgOrderValue,
+          COUNT(DISTINCT c.Invoice_Id) as totalCustomers
+        FROM Customer c
+        WHERE c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+      ),
+      previous_period AS (
+        SELECT 
+          SUM(c.Harga_Total) as totalSales,
+          COUNT(c.Invoice_Id) as totalOrders,
+          AVG(c.Harga_Total) as avgOrderValue,
+          COUNT(DISTINCT c.Invoice_Id) as totalCustomers
+        FROM Customer c
+        WHERE c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 60 DAY)
+          AND c.Tanggal_Order < DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+      ),
+      all_time_stats AS (
+        SELECT 
+          MAX(monthly_total) as peakMonthlySales,
+          AVG(monthly_total) as avgMonthlySales
+        FROM (
+          SELECT SUM(c.Harga_Total) as monthly_total 
+          FROM Customer c 
+          GROUP BY YEAR(c.Tanggal_Order), MONTH(c.Tanggal_Order)
+        ) monthly_aggregates
+      )
       SELECT 
-        COALESCE(SUM(CASE WHEN c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) THEN c.Harga_Total ELSE 0 END), 0) as current_month_sales,
-        COALESCE(SUM(CASE WHEN c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 60 DAY) AND c.Tanggal_Order < DATE_SUB(CURDATE(), INTERVAL 30 DAY) THEN c.Harga_Total ELSE 0 END), 0) as previous_month_sales,
-        COUNT(CASE WHEN c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) THEN c.Invoice_Id ELSE NULL END) as current_month_orders,
-        COUNT(CASE WHEN c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 60 DAY) AND c.Tanggal_Order < DATE_SUB(CURDATE(), INTERVAL 30 DAY) THEN c.Invoice_Id ELSE NULL END) as previous_month_orders,
-        COALESCE(AVG(CASE WHEN c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) THEN c.Harga_Total ELSE NULL END), 0) as current_avg_order,
-        COALESCE(SUM(c.Harga_Total), 0) as total_sales,
-        COUNT(c.Invoice_Id) as total_orders
-      FROM Customer c
-      WHERE c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 60 DAY)
+        COALESCE(cp.totalSales, 0) as totalSales,
+        COALESCE(cp.totalOrders, 0) as totalOrders,
+        COALESCE(cp.avgOrderValue, 0) as avgOrderValue,
+        
+        -- GROWTH RATES
+        CASE 
+          WHEN COALESCE(pp.totalSales, 0) > 0 
+          THEN ((COALESCE(cp.totalSales, 0) - COALESCE(pp.totalSales, 0)) / pp.totalSales * 100)
+          ELSE 0 
+        END as growthRate,
+        
+        -- CUSTOMER LIFETIME VALUE
+        COALESCE(cp.totalSales, 0) / NULLIF(COALESCE(cp.totalCustomers, 0), 0) as customerLifetimeValue,
+        
+        -- MARKET PENETRATION
+        COALESCE(cp.totalSales, 0) * 100.0 / NULLIF(COALESCE(ats.peakMonthlySales, 0), 0) as marketPenetration,
+        
+        -- SEASONALITY INDEX
+        COALESCE(cp.totalSales, 0) / NULLIF(COALESCE(ats.avgMonthlySales, 0), 0) * 100 as seasonalityIndex,
+        
+        -- REVENUE PER CUSTOMER
+        COALESCE(cp.totalSales, 0) / NULLIF(COALESCE(cp.totalCustomers, 0), 0) as revenuePerCustomer
+        
+      FROM current_period cp
+      CROSS JOIN previous_period pp
+      CROSS JOIN all_time_stats ats
     `;
-    
-    console.log('Executing sales summary query...');
-    const results = await query(sql) as any[];
-    const data = results[0];
-    
-    console.log('Sales summary raw data:', data);
-    
-    const growthRate = data.previous_month_sales > 0 
-      ? ((data.current_month_sales - data.previous_month_sales) / data.previous_month_sales) * 100
-      : 0;
-    
-    const summary = {
-      totalSales: Number(data.current_month_sales) || 0,
-      totalOrders: Number(data.current_month_orders) || 0,
-      avgOrderValue: Number(data.current_avg_order) || 0,
-      growthRate: Math.round(growthRate * 100) / 100
+
+    console.log('📈 Executing enhanced sales summary...');
+    const results = await query(sql);
+    return results[0] || {
+      totalSales: 0,
+      totalOrders: 0,
+      avgOrderValue: 0,
+      growthRate: 0,
+      customerLifetimeValue: 0,
+      marketPenetration: 0,
+      seasonalityIndex: 0,
+      revenuePerCustomer: 0
     };
-    
-    console.log('Processed sales summary:', summary);
-    return summary;
   } catch (error) {
-    console.error('Error in getSalesSummary:', error);
+    console.error('❌ Error in getEnhancedSalesSummary:', error);
     return {
       totalSales: 0,
       totalOrders: 0,
       avgOrderValue: 0,
-      growthRate: 0
+      growthRate: 0,
+      customerLifetimeValue: 0,
+      marketPenetration: 0,
+      seasonalityIndex: 0,
+      revenuePerCustomer: 0
     };
   }
 }
 
-export async function GET(request: NextRequest) {
+// Main GET endpoint
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const { searchParams } = new URL(request.url);
-    const type = searchParams.get('type') || 'overview';
-    
-    // Extract parameters with proper null handling
-    const ratingParam = searchParams.get('rating');
-    const statusParam = searchParams.get('status') || 'approved';
-    const sortByParam = searchParams.get('sort') || 'latest';
-    const limitParam = parseInt(searchParams.get('limit') || '20');
-    
-    console.log('Sales report API called with type:', type);
+    console.log('🚀 Starting comprehensive sales report generation with ALL TIME data...');
 
-    switch (type) {
-      case 'overview': {
-        console.log('Fetching overview data...');
-        
-        const [daily, monthly, yearly, summary] = await Promise.all([
-          getDailySales().catch(err => {
-            console.error('Daily sales failed:', err);
-            return [];
-          }),
-          getMonthlySales().catch(err => {
-            console.error('Monthly sales failed:', err);
-            return [];
-          }),
-          getYearlySales().catch(err => {
-            console.error('Yearly sales failed:', err);
-            return [];
-          }),
-          getSalesSummary().catch(err => {
-            console.error('Summary failed:', err);
-            return {
-              totalSales: 0,
-              totalOrders: 0,
-              avgOrderValue: 0,
-              growthRate: 0
-            };
-          })
-        ]);
+    // Get ALL TIME comprehensive data in parallel
+    const [
+      dailySales,
+      monthlySales,
+      yearlySales,
+      topProducts,
+      feedbackData,
+      salesSummary
+    ] = await Promise.all([
+      getComprehensiveDailySales(),
+      getComprehensiveMonthlySales(),
+      getComprehensiveYearlySales(),
+      getComprehensiveTopProducts(),
+      getComprehensiveFeedback(),
+      getEnhancedSalesSummary()
+    ]);
 
-        const salesOverview: SalesOverview = {
-          daily,
-          monthly,
-          yearly,
-          summary
+    console.log('✅ All comprehensive data retrieved successfully');
+
+    // Build comprehensive response with ALL TIME analytics
+    const response: {
+      success: boolean;
+      data: {
+        overview: SalesOverview;
+        topProducts: TopProduct[];
+        feedback: {
+          items: Feedback[];
+          summary: FeedbackSummary;
         };
-
-        console.log('Returning overview data:', {
-          dailyCount: daily.length,
-          monthlyCount: monthly.length,
-          yearlyCount: yearly.length,
-          summary
-        });
-
-        return NextResponse.json({
-          success: true,
-          data: salesOverview
-        });
+        analytics: {
+          totalDataPoints: number;
+          dataQuality: string;
+          analysisDepth: string;
+          timeSpan: string;
+        };
+      };
+    } = {
+      success: true,
+      data: {
+        overview: {
+          daily: dailySales,
+          monthly: monthlySales,
+          yearly: yearlySales,
+          summary: salesSummary
+        },
+        topProducts: topProducts,
+        feedback: {
+          items: feedbackData.feedback,
+          summary: feedbackData.summary
+        },
+        analytics: {
+          totalDataPoints: dailySales.length + monthlySales.length + yearlySales.length + topProducts.length + feedbackData.feedback.length,
+          dataQuality: 'comprehensive_all_time',
+          analysisDepth: 'enhanced_with_predictive_metrics',
+          timeSpan: `${yearlySales.length} years of historical data`
+        }
       }
+    };
 
-      case 'top-products': {
-        console.log('Fetching top products...');
-        const topProducts = await getTopProducts();
-        
-        return NextResponse.json({
-          success: true,
-          data: topProducts
-        });
-      }
-
-      case 'rush-hour': {
-        console.log('Fetching rush hour data...');
-        const rushHourData = await getRushHourData();
-        
-        return NextResponse.json({
-          success: true,
-          data: rushHourData
-        });
-      }
-
-      case 'summary': {
-        console.log('Fetching summary only...');
-        const summary = await getSalesSummary();
-        
-        return NextResponse.json({
-          success: true,
-          data: summary
-        });
-      }
-
-      case 'feedback': {
-        console.log('Fetching feedback data...');
-        
-        const [feedback, feedbackSummary] = await Promise.all([
-          getCustomerFeedback(ratingParam, statusParam, sortByParam, limitParam),
-          getFeedbackSummary()
-        ]);
-        
-        return NextResponse.json({
-          success: true,
-          data: feedback,
-          summary: feedbackSummary
-        });
-      }
-
-      default:
-        return NextResponse.json(
-          { error: 'Invalid report type. Use: overview, top-products, rush-hour, summary, or feedback' },
-          { status: 400 }
-        );
-    }
+    console.log('🎉 Comprehensive sales report generated successfully with ALL TIME data');
+    console.log(`📊 Report includes: ${response.data.analytics.totalDataPoints} total data points`);
+    
+    return NextResponse.json(response);
 
   } catch (error) {
-    console.error('Error in sales report API:', error);
+    console.error('❌ Error generating comprehensive sales report:', error);
+    
     return NextResponse.json(
-      { 
-        error: 'Failed to fetch sales report data',
-        details: error instanceof Error ? error.message : 'Unknown error'
+      {
+        success: false,
+        error: 'Failed to generate comprehensive sales report',
+        message: error instanceof Error ? error.message : 'Unknown error occurred',
+        details: {
+          timestamp: new Date().toISOString(),
+          errorType: 'SALES_REPORT_ERROR'
+        }
       },
       { status: 500 }
     );

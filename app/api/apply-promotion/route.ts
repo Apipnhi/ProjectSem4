@@ -1,9 +1,8 @@
 // app/api/apply-promotion/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, readFile } from 'fs/promises';
-import path from 'path';
+import { query } from '@/lib/db';
 
-interface Promotion {
+interface PromotionData {
   type: string;
   description: string;
   reasoning: string;
@@ -11,193 +10,98 @@ interface Promotion {
   details?: string;
 }
 
-interface AppliedPromotion extends Promotion {
-  id: string;
-  appliedAt: string;
-  status: 'active' | 'paused' | 'completed';
-  startDate: string;
-  endDate?: string;
-  performance?: {
-    orders: number;
-    revenue: number;
-    conversionRate: number;
-  };
-}
-
-const PROMOTIONS_FILE = path.join(process.cwd(), 'public', 'applied-promotions.json');
-
-async function readPromotions(): Promise<AppliedPromotion[]> {
+// Create promotion table if not exists
+async function createPromotionTable() {
   try {
-    const data = await readFile(PROMOTIONS_FILE, 'utf8');
-    return JSON.parse(data);
-  } catch (error) {
-    // File doesn't exist or is empty, return empty array
-    return [];
-  }
-}
-
-async function writePromotions(promotions: AppliedPromotion[]): Promise<void> {
-  await writeFile(PROMOTIONS_FILE, JSON.stringify(promotions, null, 2), 'utf8');
-}
-
-function generateId(): string {
-  return Math.random().toString(36).substr(2, 9);
-}
-
-// GET - Fetch all applied promotions
-export async function GET(request: NextRequest) {
-  try {
-    const promotions = await readPromotions();
+    const createTableSql = `
+      CREATE TABLE IF NOT EXISTS applied_promotions (
+        id VARCHAR(255) PRIMARY KEY,
+        type VARCHAR(255) NOT NULL,
+        description TEXT,
+        reasoning TEXT,
+        estimated_impact VARCHAR(255),
+        details TEXT,
+        applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        status ENUM('active', 'paused', 'completed') DEFAULT 'active',
+        start_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+        end_date DATETIME NULL,
+        performance_orders INT DEFAULT 0,
+        performance_revenue DECIMAL(10,2) DEFAULT 0.00,
+        performance_conversion_rate DECIMAL(5,2) DEFAULT 0.00,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `;
     
-    return NextResponse.json({
-      success: true,
-      promotions: promotions
-    });
+    await query(createTableSql);
+    console.log('✅ Applied promotions table created/verified');
   } catch (error) {
-    console.error('Error fetching promotions:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch promotions' },
-      { status: 500 }
-    );
+    console.error('❌ Error creating promotions table:', error);
   }
 }
 
-// POST - Apply a new promotion
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { promotion, startDate, endDate } = body;
-
-    if (!promotion || !startDate) {
-      return NextResponse.json(
-        { error: 'Promotion data and start date are required' },
-        { status: 400 }
-      );
-    }
-
-    const appliedPromotion: AppliedPromotion = {
-      id: generateId(),
-      ...promotion,
-      appliedAt: new Date().toISOString(),
-      status: 'active',
+    const promotionData: PromotionData = await request.json();
+    
+    console.log('🎯 Applying promotion:', promotionData.type);
+    
+    // Ensure table exists
+    await createPromotionTable();
+    
+    // Generate unique ID
+    const promotionId = `promo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Calculate end date (default to 30 days from now)
+    const startDate = new Date();
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + 30);
+    
+    // Insert promotion into database
+    const insertSql = `
+      INSERT INTO applied_promotions (
+        id, type, description, reasoning, estimated_impact, details,
+        applied_at, status, start_date, end_date
+      ) VALUES (?, ?, ?, ?, ?, ?, NOW(), 'active', ?, ?)
+    `;
+    
+    await query(insertSql, [
+      promotionId,
+      promotionData.type,
+      promotionData.description,
+      promotionData.reasoning,
+      promotionData.estimatedImpact,
+      promotionData.details || '',
       startDate,
-      endDate,
-      performance: {
-        orders: 0,
-        revenue: 0,
-        conversionRate: 0
+      endDate
+    ]);
+    
+    // Return success response
+    const response = {
+      success: true,
+      message: `Promotion "${promotionData.type}" applied successfully`,
+      promotion: {
+        id: promotionId,
+        ...promotionData,
+        appliedAt: startDate.toISOString(),
+        status: 'active' as const,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString()
       }
     };
-
-    const existingPromotions = await readPromotions();
-    const updatedPromotions = [...existingPromotions, appliedPromotion];
     
-    await writePromotions(updatedPromotions);
-
-    console.log('Promotion applied successfully:', appliedPromotion.id);
-
-    return NextResponse.json({
-      success: true,
-      message: 'Promotion applied successfully',
-      promotion: appliedPromotion
-    });
-  } catch (error) {
-    console.error('Error applying promotion:', error);
-    return NextResponse.json(
-      { error: 'Failed to apply promotion' },
-      { status: 500 }
-    );
-  }
-}
-
-// PUT - Update promotion status
-export async function PUT(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { promotionId, status, performance } = body;
-
-    if (!promotionId || !status) {
-      return NextResponse.json(
-        { error: 'Promotion ID and status are required' },
-        { status: 400 }
-      );
-    }
-
-    const promotions = await readPromotions();
-    const promotionIndex = promotions.findIndex(p => p.id === promotionId);
-
-    if (promotionIndex === -1) {
-      return NextResponse.json(
-        { error: 'Promotion not found' },
-        { status: 404 }
-      );
-    }
-
-    // Update promotion
-    promotions[promotionIndex].status = status;
+    console.log('✅ Promotion applied successfully:', promotionId);
+    return NextResponse.json(response);
     
-    if (performance) {
-      promotions[promotionIndex].performance = performance;
-    }
-
-    // If completing promotion, set end date
-    if (status === 'completed' && !promotions[promotionIndex].endDate) {
-      promotions[promotionIndex].endDate = new Date().toISOString();
-    }
-
-    await writePromotions(promotions);
-
-    console.log('Promotion status updated:', promotionId, status);
-
-    return NextResponse.json({
-      success: true,
-      message: `Promotion ${status} successfully`,
-      promotion: promotions[promotionIndex]
-    });
   } catch (error) {
-    console.error('Error updating promotion status:', error);
+    console.error('❌ Error applying promotion:', error);
+    
     return NextResponse.json(
-      { error: 'Failed to update promotion status' },
-      { status: 500 }
-    );
-  }
-}
-
-// DELETE - Remove a promotion
-export async function DELETE(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const promotionId = searchParams.get('id');
-
-    if (!promotionId) {
-      return NextResponse.json(
-        { error: 'Promotion ID is required' },
-        { status: 400 }
-      );
-    }
-
-    const promotions = await readPromotions();
-    const filteredPromotions = promotions.filter(p => p.id !== promotionId);
-
-    if (filteredPromotions.length === promotions.length) {
-      return NextResponse.json(
-        { error: 'Promotion not found' },
-        { status: 404 }
-      );
-    }
-
-    await writePromotions(filteredPromotions);
-
-    console.log('Promotion deleted:', promotionId);
-
-    return NextResponse.json({
-      success: true,
-      message: 'Promotion deleted successfully'
-    });
-  } catch (error) {
-    console.error('Error deleting promotion:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete promotion' },
+      {
+        success: false,
+        error: 'Failed to apply promotion',
+        message: error instanceof Error ? error.message : 'Unknown error occurred'
+      },
       { status: 500 }
     );
   }

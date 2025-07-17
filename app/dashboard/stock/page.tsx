@@ -1,4 +1,4 @@
-// app/dashboard/stock/page.tsx
+// app/dashboard/stock/page.tsx - Fixed with proper null checking
 "use client";
 
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -6,111 +6,175 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AlertTriangle, Sparkles, TrendingUp } from "lucide-react";
+import { AlertTriangle, Sparkles, TrendingUp, Package, Clock, RefreshCw } from "lucide-react";
 import { useState, useEffect } from "react";
 
 interface StockPrediction {
   ingredient: string;
   currentStock: number;
-  predictedNeed: number;
-  recommendedOrder: number;
-  urgency: "low" | "medium" | "high";
+  predictedConsumption: number;
+  reorderPoint: number;
+  optimalPurchaseQty: number;
+  reorderTiming: "immediate" | "within_week" | "within_month";
+  riskLevel: "high" | "medium" | "low";
+  costOptimization: string;
+  expectedROI: number;
   reasoning: string;
-  estimatedCost: number;
+  urgencyScore?: number;
+  efficiency?: string;
 }
 
 interface StockPredictionSummary {
-  totalIngredients: number;
-  highUrgency: number;
-  estimatedTotalCost: number;
+  totalItems: number;
+  highRiskItems: number;
+  immediateActionRequired: number;
+  avgExpectedROI: number;
+  totalPredictedCost?: number;
+  totalCurrentValue?: number;
+}
+
+interface StockPredictionResponse {
+  success: boolean;
+  message: string;
+  data: {
+    predictions: StockPrediction[];
+    summary: StockPredictionSummary;
+    analytics: {
+      method: string;
+      dataScope: string;
+      stockItemsAnalyzed: number;
+      salesRecordsAnalyzed: number;
+      predictionPeriod: string;
+      restaurantId: number;
+      timestamp: string;
+      confidence: string;
+      algorithm: string;
+    };
+  };
 }
 
 function StockManagementPage() {
   const [stockPredictions, setStockPredictions] = useState<StockPrediction[] | null>(null);
   const [predictionSummary, setPredictionSummary] = useState<StockPredictionSummary | null>(null);
+  const [analytics, setAnalytics] = useState<StockPredictionResponse['data']['analytics'] | null>(null);
   const [isGeneratingPredictions, setIsGeneratingPredictions] = useState(false);
   const [predictionError, setPredictionError] = useState<string | null>(null);
   const [predictionPeriod, setPredictionPeriod] = useState<string>("week");
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
   const generateStockPredictions = async () => {
     setIsGeneratingPredictions(true);
     setPredictionError(null);
 
     try {
-      console.log("Starting prediction generation...");
+      console.log("🚀 Starting prediction generation for period:", predictionPeriod);
       
       const generateResponse = await fetch("/api/generate-stock-predictions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ period: predictionPeriod }),
+        body: JSON.stringify({ 
+          period: predictionPeriod,
+          restaurantId: 1 
+        }),
       });
 
-      console.log("Generate response status:", generateResponse.status);
+      console.log("📊 Generate response status:", generateResponse.status);
 
-      const generateData = await generateResponse.json();
       if (!generateResponse.ok) {
-        throw new Error(generateData.error || "Failed to generate predictions");
+        const errorData = await generateResponse.json();
+        throw new Error(errorData.message || errorData.error || "Failed to generate predictions");
       }
 
-      console.log("Predictions generated successfully:", generateData);
+      const generateData: StockPredictionResponse = await generateResponse.json();
+      console.log("✅ Predictions generated successfully:", generateData);
 
-      // Optional delay to show loading state
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      // Try to fetch the predictions file
-      const response = await fetch("/predictions.json");
-      console.log("Predictions file response status:", response.status);
-      
-      const contentType = response.headers.get("content-type");
-
-      if (contentType && contentType.includes("application/json")) {
-        const data = await response.json();
-        console.log("Predictions data:", data);
-        
-        if (data.predictions) {
-          setStockPredictions(data.predictions);
-          setPredictionSummary(data.summary);
-        } else {
-          throw new Error("Missing predictions in JSON.");
-        }
+      if (generateData.success && generateData.data) {
+        setStockPredictions(generateData.data.predictions || []);
+        setPredictionSummary(generateData.data.summary || {
+          totalItems: 0,
+          highRiskItems: 0,
+          immediateActionRequired: 0,
+          avgExpectedROI: 0,
+          totalPredictedCost: 0,
+          totalCurrentValue: 0
+        });
+        setAnalytics(generateData.data.analytics);
+        setLastUpdated(new Date().toLocaleString());
       } else {
-        const text = await response.text();
-        console.error("Invalid predictions.json response:", text);
-        throw new Error("Predictions file not found or invalid format.");
+        throw new Error(generateData.message || "Invalid response format");
       }
-    } catch (error: any) {
-      console.error("Error generating predictions:", error);
-      setPredictionError(error.message || "Failed to generate stock predictions");
-      setStockPredictions(null);
-      setPredictionSummary(null);
-    }
 
-    setIsGeneratingPredictions(false);
+    } catch (error) {
+      console.error("❌ Error generating predictions:", error);
+      setPredictionError(error instanceof Error ? error.message : "Unknown error occurred");
+    } finally {
+      setIsGeneratingPredictions(false);
+    }
   };
 
+  // Auto-load predictions on component mount
   useEffect(() => {
     generateStockPredictions();
-  }, [predictionPeriod]);
+  }, []);
+
+  const getUrgencyColor = (urgency: string) => {
+    switch (urgency) {
+      case "high":
+        return "bg-red-500 text-white";
+      case "medium":
+        return "bg-yellow-500 text-white";
+      case "low":
+        return "bg-green-500 text-white";
+      default:
+        return "bg-gray-500 text-white";
+    }
+  };
+
+  const getRiskColor = (riskLevel: string) => {
+    switch (riskLevel) {
+      case "high":
+        return "bg-red-100 border-red-200 text-red-800";
+      case "medium":
+        return "bg-yellow-100 border-yellow-200 text-yellow-800";
+      case "low":
+        return "bg-green-100 border-green-200 text-green-800";
+      default:
+        return "bg-gray-100 border-gray-200 text-gray-800";
+    }
+  };
+
+  const formatCurrency = (amount: number): string => {
+    return new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount || 0);
+  };
 
   return (
-    <DashboardLayout title="Stock Management">
-      {/* AI Stock Predictions */}
-      <Card className="mb-6">
+    <DashboardLayout>
+      <Card className="w-full">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-purple-500" />
+                <Sparkles className="h-6 w-6 text-purple-600" />
                 AI Stock Predictions
               </CardTitle>
               <CardDescription>
                 AI-powered stock requirement forecasting based on sales data
+                {lastUpdated && (
+                  <span className="block text-xs text-gray-500 mt-1">
+                    Last updated: {lastUpdated}
+                  </span>
+                )}
               </CardDescription>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-4">
               <Select value={predictionPeriod} onValueChange={setPredictionPeriod}>
                 <SelectTrigger className="w-[120px]">
-                  <SelectValue />
+                  <SelectValue placeholder="Period" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="week">Next Week</SelectItem>
@@ -118,12 +182,12 @@ function StockManagementPage() {
                   <SelectItem value="quarter">Next Quarter</SelectItem>
                 </SelectContent>
               </Select>
-              <Button
-                onClick={generateStockPredictions}
+              <Button 
+                onClick={generateStockPredictions} 
                 disabled={isGeneratingPredictions}
-                variant="outline"
+                className="flex items-center gap-2"
               >
-                <TrendingUp className="mr-2 h-4 w-4" />
+                <RefreshCw className={`h-4 w-4 ${isGeneratingPredictions ? 'animate-spin' : ''}`} />
                 {isGeneratingPredictions ? "Generating..." : "Refresh"}
               </Button>
             </div>
@@ -132,113 +196,226 @@ function StockManagementPage() {
         <CardContent>
           {isGeneratingPredictions && (
             <div className="text-center py-8">
-              <div className="text-blue-600 mb-2">
-                Generating AI stock predictions...
+              <div className="flex items-center justify-center gap-3 mb-4">
+                <RefreshCw className="h-6 w-6 text-blue-600 animate-spin" />
+                <span className="text-blue-600 font-medium">
+                  Generating AI stock predictions...
+                </span>
               </div>
               <div className="text-sm text-gray-500">
-                Analyzing sales patterns and inventory levels
+                Analyzing sales patterns, consumption trends, and inventory levels
               </div>
+              {analytics && (
+                <div className="text-xs text-gray-400 mt-2">
+                  Method: {analytics.method}
+                </div>
+              )}
             </div>
           )}
 
           {predictionError && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-red-600" />
-                <span className="text-red-800">{predictionError}</span>
+                <span className="text-red-800 font-medium">Prediction Error</span>
               </div>
+              <p className="text-red-700 mt-1">{predictionError}</p>
+              <Button 
+                onClick={generateStockPredictions} 
+                className="mt-3"
+                size="sm"
+                variant="outline"
+              >
+                Try Again
+              </Button>
             </div>
           )}
 
           {stockPredictions && predictionSummary && (
             <div className="space-y-6">
               {/* Prediction Summary */}
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-4">
                 <div className="text-center p-4 border rounded-lg bg-blue-50">
+                  <Package className="h-8 w-8 text-blue-600 mx-auto mb-2" />
                   <h3 className="font-semibold text-lg text-blue-800">
-                    Total Ingredients
+                    Total Items
                   </h3>
                   <p className="text-2xl font-bold text-blue-600">
-                    {predictionSummary.totalIngredients}
+                    {predictionSummary.totalItems || 0}
                   </p>
-                  <p className="text-xs text-blue-600">Need attention</p>
+                  <p className="text-xs text-blue-600">Analyzed ingredients</p>
                 </div>
+                
+                <div className="text-center p-4 border rounded-lg bg-red-50">
+                  <AlertTriangle className="h-8 w-8 text-red-600 mx-auto mb-2" />
+                  <h3 className="font-semibold text-lg text-red-800">
+                    High Risk
+                  </h3>
+                  <p className="text-2xl font-bold text-red-600">
+                    {predictionSummary.highRiskItems || 0}
+                  </p>
+                  <p className="text-xs text-red-600">Critical items</p>
+                </div>
+                
                 <div className="text-center p-4 border rounded-lg bg-yellow-50">
+                  <Clock className="h-8 w-8 text-yellow-600 mx-auto mb-2" />
                   <h3 className="font-semibold text-lg text-yellow-800">
-                    High Urgency
+                    Immediate Action
                   </h3>
                   <p className="text-2xl font-bold text-yellow-600">
-                    {predictionSummary.highUrgency}
+                    {predictionSummary.immediateActionRequired || 0}
                   </p>
-                  <p className="text-xs text-yellow-600">Critical items</p>
+                  <p className="text-xs text-yellow-600">Urgent orders needed</p>
                 </div>
+                
                 <div className="text-center p-4 border rounded-lg bg-green-50">
+                  <TrendingUp className="h-8 w-8 text-green-600 mx-auto mb-2" />
                   <h3 className="font-semibold text-lg text-green-800">
-                    Estimated Cost
+                    Predicted Cost
                   </h3>
                   <p className="text-2xl font-bold text-green-600">
-                    Rp{predictionSummary.estimatedTotalCost.toLocaleString()}
+                    {formatCurrency(predictionSummary.totalPredictedCost || 0)}
                   </p>
-                  <p className="text-xs text-green-600">Total order value</p>
+                  <p className="text-xs text-green-600">Total investment needed</p>
                 </div>
               </div>
+
+              {/* Analytics Information */}
+              {analytics && (
+                <div className="bg-gray-50 border rounded-lg p-4">
+                  <h3 className="font-semibold text-gray-800 mb-2">Analysis Details</h3>
+                  <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4 text-sm">
+                    <div>
+                      <span className="text-gray-600">Method:</span>
+                      <p className="font-medium">{analytics.method}</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Confidence:</span>
+                      <p className="font-medium">{analytics.confidence}</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Data Points:</span>
+                      <p className="font-medium">{analytics.stockItemsAnalyzed} stock + {analytics.salesRecordsAnalyzed} sales</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Period:</span>
+                      <p className="font-medium capitalize">{analytics.predictionPeriod}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Stock Predictions List */}
               <div className="space-y-4">
                 <h3 className="font-semibold text-lg">
-                  Recommended Stock Orders
+                  Recommended Stock Orders ({stockPredictions.length} items)
                 </h3>
-                <div className="grid gap-4 md:grid-cols-2">
-                  {stockPredictions.map((prediction, idx) => (
-                    <div key={idx} className="border rounded-lg p-4 bg-white">
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <h4 className="font-semibold text-navy-blue">
-                            {prediction.ingredient}
-                          </h4>
-                          <p className="text-sm text-gray-600">
-                            Current: {prediction.currentStock} | Need:{" "}
-                            {prediction.predictedNeed}
-                          </p>
+                
+                {stockPredictions.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Package className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                    <p className="text-gray-500">No stock predictions available</p>
+                    <p className="text-sm text-gray-400">Try generating predictions for a different period</p>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {stockPredictions.map((prediction, idx) => (
+                      <div key={idx} className={`border rounded-lg p-4 ${getRiskColor(prediction.riskLevel)}`}>
+                        <div className="flex items-start justify-between mb-3">
+                          <div>
+                            <h4 className="font-semibold text-base">
+                              {prediction.ingredient}
+                            </h4>
+                            <p className="text-sm opacity-75">
+                              Stock: {prediction.currentStock} | Need: {prediction.predictedConsumption}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <Badge className={`${getUrgencyColor(prediction.riskLevel)} mb-1`}>
+                              {prediction.riskLevel}
+                            </Badge>
+                            <p className="text-xs opacity-75">{prediction.reorderTiming}</p>
+                          </div>
                         </div>
-                        <Badge
-                          className={
-                            prediction.urgency === "high"
-                              ? "bg-red-500"
-                              : prediction.urgency === "medium"
-                              ? "bg-yellow-500"
-                              : "bg-green-500"
-                          }
-                        >
-                          {prediction.urgency} urgency
-                        </Badge>
+                        
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span className="opacity-75">Recommended Order:</span>
+                            <span className="font-semibold">
+                              {prediction.optimalPurchaseQty} units
+                            </span>
+                          </div>
+                          
+                          <div className="flex justify-between text-sm">
+                            <span className="opacity-75">Expected ROI:</span>
+                            <span className="font-semibold">
+                              {prediction.expectedROI}%
+                            </span>
+                          </div>
+                          
+                          <div className="flex justify-between text-sm">
+                            <span className="opacity-75">Reorder Point:</span>
+                            <span className="font-semibold">
+                              {prediction.reorderPoint} units
+                            </span>
+                          </div>
+                          
+                          {prediction.efficiency && (
+                            <div className="flex justify-between text-sm">
+                              <span className="opacity-75">Efficiency:</span>
+                              <span className="font-semibold capitalize">
+                                {prediction.efficiency}
+                              </span>
+                            </div>
+                          )}
+                          
+                          <div className="text-xs opacity-60 mt-3 p-2 bg-white bg-opacity-50 rounded">
+                            <strong>Analysis:</strong> {prediction.reasoning}
+                          </div>
+                          
+                          {prediction.costOptimization && (
+                            <div className="text-xs opacity-60 p-2 bg-white bg-opacity-50 rounded">
+                              <strong>Cost Optimization:</strong> {prediction.costOptimization}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-600">
-                            Recommended Order:
-                          </span>
-                          <span className="font-semibold">
-                            {prediction.recommendedOrder} units
-                          </span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-600">
-                            Estimated Cost:
-                          </span>
-                          <span className="font-semibold">
-                            Rp{prediction.estimatedCost.toLocaleString()}
-                          </span>
-                        </div>
-                        <div className="text-xs text-gray-500 mt-2">
-                          <strong>Reasoning:</strong>{" "}
-                          {prediction.reasoning}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
+
+              {/* Summary Stats */}
+              {predictionSummary && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h3 className="font-semibold text-blue-800 mb-2">Summary Overview</h3>
+                  <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4 text-sm">
+                    <div>
+                      <span className="text-blue-600">Average ROI:</span>
+                      <p className="font-bold text-blue-800">{predictionSummary.avgExpectedROI || 0}%</p>
+                    </div>
+                    {predictionSummary.totalCurrentValue && (
+                      <div>
+                        <span className="text-blue-600">Current Value:</span>
+                        <p className="font-bold text-blue-800">{formatCurrency(predictionSummary.totalCurrentValue)}</p>
+                      </div>
+                    )}
+                    <div>
+                      <span className="text-blue-600">High Risk Rate:</span>
+                      <p className="font-bold text-blue-800">
+                        {predictionSummary.totalItems > 0 ? 
+                          Math.round((predictionSummary.highRiskItems / predictionSummary.totalItems) * 100) : 0}%
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-blue-600">Action Required:</span>
+                      <p className="font-bold text-blue-800">
+                        {predictionSummary.immediateActionRequired} / {predictionSummary.totalItems} items
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </CardContent>

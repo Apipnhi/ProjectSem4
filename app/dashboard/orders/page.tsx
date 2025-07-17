@@ -1,4 +1,4 @@
-// app/dashboard/orders/page.tsx
+// app/dashboard//page.tsx
 "use client"
 
 import { useState } from "react"

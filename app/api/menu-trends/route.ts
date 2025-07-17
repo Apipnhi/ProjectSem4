@@ -1,4 +1,4 @@
-// app/api/menu-trends/route.ts
+// app/api/menu-trends/route.ts - Fixed with proper data type handling
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { callGroqLLM } from '@/lib/utils';
@@ -9,13 +9,17 @@ interface MenuSalesData {
   Kategori: string;
   Harga: number;
   all_time_sales: number;
-  current_period_sales: number;
-  previous_period_sales: number;
-  total_revenue: number;
-  avg_order_frequency: number;
+  all_time_quantity: number;
+  all_time_revenue: number;
+  all_time_customers: number;
+  monthly_avg_sales: number;
   peak_month: string;
-  peak_sales: number;
-  recent_trend: string;
+  peak_quantity: number;
+  recent_performance: number;
+  growth_trend: string;
+  price_vs_category_avg: number;
+  customer_retention: number;
+  seasonal_pattern: string;
 }
 
 interface MenuTrend {
@@ -45,20 +49,22 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { period = 'month', restaurantId = 1 } = body;
 
-    console.log('Generating menu trends analysis for period:', period);
+    console.log('🔍 Generating comprehensive menu trends analysis using ALL TIME data for period:', period);
 
-    // Get comprehensive menu sales data
-    const menuSalesData = await getComprehensiveMenuSalesData(parseInt(restaurantId), period);
+    // Get COMPREHENSIVE menu sales data (ALL TIME)
+    const menuSalesData = await getComprehensiveAllTimeMenuData(parseInt(restaurantId), period);
     
     if (menuSalesData.length === 0) {
       return NextResponse.json({
         success: false,
-        error: 'No sales data available for trend analysis'
+        error: 'No sales data available for comprehensive trend analysis'
       }, { status: 404 });
     }
 
-    // Generate AI trends analysis
-    const trendsAnalysis = await generateMenuTrends(menuSalesData, period);
+    console.log(`📊 Loaded ${menuSalesData.length} menu items with complete historical data`);
+
+    // Generate AI trends analysis using ALL TIME data
+    const trendsAnalysis = await generateComprehensiveMenuTrends(menuSalesData, period);
 
     return NextResponse.json({
       success: true,
@@ -66,7 +72,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Error generating menu trends:', error);
+    console.error('❌ Error generating comprehensive menu trends:', error);
     return NextResponse.json(
       { 
         success: false,
@@ -78,28 +84,9 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Get comprehensive menu sales data for trend analysis (ALL TIME DATA)
-async function getComprehensiveMenuSalesData(restaurantId: number, period: string): Promise<MenuSalesData[]> {
+// Get COMPREHENSIVE ALL TIME menu data with enhanced metrics
+async function getComprehensiveAllTimeMenuData(restaurantId: number, period: string): Promise<MenuSalesData[]> {
   try {
-    // Determine date ranges based on period
-    let currentPeriodDays = 30;
-    let previousPeriodDays = 60;
-    
-    switch (period) {
-      case 'week':
-        currentPeriodDays = 7;
-        previousPeriodDays = 14;
-        break;
-      case 'month':
-        currentPeriodDays = 30;
-        previousPeriodDays = 60;
-        break;
-      case 'quarter':
-        currentPeriodDays = 90;
-        previousPeriodDays = 180;
-        break;
-    }
-
     const sql = `
       SELECT 
         m.Id_Menu,
@@ -107,31 +94,20 @@ async function getComprehensiveMenuSalesData(restaurantId: number, period: strin
         m.Kategori,
         m.Harga,
         
-        -- ALL TIME SALES (complete history)
-        COALESCE(SUM(mm.kuantitas), 0) as all_time_sales,
+        -- COMPREHENSIVE ALL TIME METRICS with proper NULL handling
+        COALESCE(COUNT(DISTINCT c.Invoice_Id), 0) as all_time_sales,
+        COALESCE(SUM(mm.kuantitas), 0) as all_time_quantity,
+        COALESCE(SUM(mm.kuantitas * m.Harga), 0) as all_time_revenue,
+        COALESCE(COUNT(DISTINCT mm.id_customer), 0) as all_time_customers,
         
-        -- Current period sales
-        COALESCE(SUM(CASE 
-          WHEN c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL ${currentPeriodDays} DAY) 
-          THEN mm.kuantitas 
+        -- PERFORMANCE ANALYSIS with safe division
+        CASE 
+          WHEN COUNT(DISTINCT DATE_FORMAT(c.Tanggal_Order, '%Y-%m')) > 0 
+          THEN ROUND(COALESCE(SUM(mm.kuantitas), 0) / COUNT(DISTINCT DATE_FORMAT(c.Tanggal_Order, '%Y-%m')), 2)
           ELSE 0 
-        END), 0) as current_period_sales,
+        END as monthly_avg_sales,
         
-        -- Previous period sales  
-        COALESCE(SUM(CASE 
-          WHEN c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL ${previousPeriodDays} DAY) 
-            AND c.Tanggal_Order < DATE_SUB(CURDATE(), INTERVAL ${currentPeriodDays} DAY)
-          THEN mm.kuantitas 
-          ELSE 0 
-        END), 0) as previous_period_sales,
-        
-        -- Total revenue ALL TIME
-        COALESCE(SUM(mm.kuantitas * m.Harga), 0) as total_revenue,
-        
-        -- Average order frequency (unique orders)
-        COALESCE(COUNT(DISTINCT c.Invoice_Id), 0) as avg_order_frequency,
-        
-        -- Peak month analysis
+        -- PEAK PERFORMANCE ANALYSIS
         (SELECT DATE_FORMAT(c2.Tanggal_Order, '%Y-%m') 
          FROM MEMESAN_MENU mm2 
          JOIN Customer c2 ON mm2.id_customer = c2.Invoice_Id 
@@ -140,37 +116,71 @@ async function getComprehensiveMenuSalesData(restaurantId: number, period: strin
          ORDER BY SUM(mm2.kuantitas) DESC 
          LIMIT 1) as peak_month,
         
-        -- Peak sales count
-        (SELECT MAX(monthly_sales) FROM (
-          SELECT SUM(mm3.kuantitas) as monthly_sales
+        (SELECT COALESCE(MAX(monthly_quantity), 0) FROM (
+          SELECT SUM(mm3.kuantitas) as monthly_quantity
           FROM MEMESAN_MENU mm3 
           JOIN Customer c3 ON mm3.id_customer = c3.Invoice_Id 
           WHERE mm3.id_menu = m.Id_Menu 
           GROUP BY DATE_FORMAT(c3.Tanggal_Order, '%Y-%m')
-        ) as peak_data) as peak_sales,
+        ) peak_data) as peak_quantity,
         
-        -- Recent trend (last 3 months vs 3 months before)
+        -- RECENT PERFORMANCE with safe calculations
+        COALESCE(SUM(CASE 
+          WHEN c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 90 DAY) 
+          THEN mm.kuantitas ELSE 0 END), 0) as recent_performance,
+        
+        -- GROWTH TREND ANALYSIS
         CASE 
-          WHEN 
-            COALESCE(SUM(CASE 
-              WHEN c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 90 DAY) 
-              THEN mm.kuantitas ELSE 0 END), 0) > 
-            COALESCE(SUM(CASE 
-              WHEN c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 180 DAY) 
-                AND c.Tanggal_Order < DATE_SUB(CURDATE(), INTERVAL 90 DAY)
-              THEN mm.kuantitas ELSE 0 END), 0) * 1.1
-          THEN 'increasing'
-          WHEN 
-            COALESCE(SUM(CASE 
-              WHEN c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 90 DAY) 
-              THEN mm.kuantitas ELSE 0 END), 0) < 
-            COALESCE(SUM(CASE 
-              WHEN c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 180 DAY) 
-                AND c.Tanggal_Order < DATE_SUB(CURDATE(), INTERVAL 90 DAY)
-              THEN mm.kuantitas ELSE 0 END), 0) * 0.9
-          THEN 'decreasing'
-          ELSE 'stable'
-        END as recent_trend
+          WHEN COALESCE(SUM(CASE WHEN c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 90 DAY) THEN mm.kuantitas ELSE 0 END), 0) >
+               COALESCE(SUM(CASE WHEN c.Tanggal_Order < DATE_SUB(CURDATE(), INTERVAL 90 DAY) THEN mm.kuantitas ELSE 0 END), 0) * 1.2
+          THEN 'consistently_growing'
+          WHEN COALESCE(SUM(CASE WHEN c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 90 DAY) THEN mm.kuantitas ELSE 0 END), 0) <
+               COALESCE(SUM(CASE WHEN c.Tanggal_Order < DATE_SUB(CURDATE(), INTERVAL 90 DAY) THEN mm.kuantitas ELSE 0 END), 0) * 0.8
+          THEN 'declining_trend'
+          ELSE 'stable_performance'
+        END as growth_trend,
+        
+        -- PRICE ANALYSIS with safe division
+        CASE 
+          WHEN (SELECT AVG(m2.Harga) FROM menu m2 WHERE m2.Kategori = m.Kategori AND m2.id_restaurant = m.id_restaurant) > 0
+          THEN m.Harga / (SELECT AVG(m2.Harga) FROM menu m2 WHERE m2.Kategori = m.Kategori AND m2.id_restaurant = m.id_restaurant)
+          ELSE 1 
+        END as price_vs_category_avg,
+        
+        -- CUSTOMER RETENTION with safe calculations
+        CASE 
+          WHEN COUNT(DISTINCT mm.id_customer) > 0 
+          THEN ROUND((COUNT(mm.id_customer) - COUNT(DISTINCT mm.id_customer)) * 100.0 / COUNT(DISTINCT mm.id_customer), 2)
+          ELSE 0 
+        END as customer_retention,
+        
+        -- SEASONAL PATTERN ANALYSIS
+        (SELECT 
+          CASE 
+            WHEN MAX(seasonal_orders) > MIN(seasonal_orders) * 2 THEN 'highly_seasonal'
+            WHEN MAX(seasonal_orders) > MIN(seasonal_orders) * 1.5 THEN 'moderately_seasonal'
+            ELSE 'consistent_year_round'
+          END
+         FROM (
+           SELECT 
+             CASE 
+               WHEN MONTH(c2.Tanggal_Order) IN (12, 1, 2) THEN 'Winter'
+               WHEN MONTH(c2.Tanggal_Order) IN (3, 4, 5) THEN 'Spring'
+               WHEN MONTH(c2.Tanggal_Order) IN (6, 7, 8) THEN 'Summer'
+               ELSE 'Fall'
+             END as season,
+             COUNT(*) as seasonal_orders
+           FROM MEMESAN_MENU mm2
+           JOIN Customer c2 ON mm2.id_customer = c2.Invoice_Id
+           WHERE mm2.id_menu = m.Id_Menu
+           GROUP BY 
+             CASE 
+               WHEN MONTH(c2.Tanggal_Order) IN (12, 1, 2) THEN 'Winter'
+               WHEN MONTH(c2.Tanggal_Order) IN (3, 4, 5) THEN 'Spring'
+               WHEN MONTH(c2.Tanggal_Order) IN (6, 7, 8) THEN 'Summer'
+               ELSE 'Fall'
+             END
+         ) seasonal_data) as seasonal_pattern
         
       FROM menu m
       LEFT JOIN MEMESAN_MENU mm ON m.Id_Menu = mm.id_menu
@@ -178,111 +188,136 @@ async function getComprehensiveMenuSalesData(restaurantId: number, period: strin
       WHERE m.id_restaurant = ${restaurantId}
         AND m.Status = 1
       GROUP BY m.Id_Menu, m.Nama_Menu, m.Kategori, m.Harga
-      ORDER BY all_time_sales DESC, total_revenue DESC
+      HAVING all_time_quantity > 0
+      ORDER BY all_time_revenue DESC, all_time_quantity DESC
     `;
 
-    console.log('Comprehensive menu sales analysis SQL:', sql);
-
+    console.log('🔄 Executing comprehensive ALL TIME menu analysis query...');
     const results = await query(sql);
-    console.log(`Found ${results.length} menu items with comprehensive sales data`);
+    console.log(`✅ Found ${results.length} menu items with comprehensive historical data`);
 
     return results as MenuSalesData[];
 
   } catch (error) {
-    console.error('Error getting comprehensive menu sales data:', error);
+    console.error('❌ Error getting comprehensive ALL TIME menu data:', error);
     throw error;
   }
 }
 
-// Generate AI-powered menu trends analysis using ALL TIME DATA
-async function generateMenuTrends(menuSalesData: MenuSalesData[], period: string): Promise<{ trends: MenuTrend[], summary: TrendSummary }> {
+// Generate AI-powered comprehensive menu trends using ALL TIME data - FIXED
+async function generateComprehensiveMenuTrends(menuSalesData: MenuSalesData[], period: string): Promise<{ trends: MenuTrend[], summary: TrendSummary }> {
   try {
-    console.log('Generating AI menu trends analysis with comprehensive data...');
+    console.log('🤖 Generating AI menu trends with COMPREHENSIVE ALL TIME data...');
 
-    // Prepare comprehensive data for AI analysis
-    const salesSummary = menuSalesData.map(item => ({
+    // Prepare COMPREHENSIVE data summary for AI analysis - FIXED with proper NULL handling
+    const comprehensiveSummary = menuSalesData.map(item => ({
       name: item.Nama_Menu,
       category: item.Kategori,
       price: item.Harga,
-      allTimeSales: item.all_time_sales,
-      currentPeriodSales: item.current_period_sales,
-      previousPeriodSales: item.previous_period_sales,
-      totalRevenue: item.total_revenue,
-      orderFrequency: item.avg_order_frequency,
-      peakMonth: item.peak_month,
-      peakSales: item.peak_sales,
-      recentTrend: item.recent_trend,
-      growthRate: item.previous_period_sales > 0 ? 
-        ((item.current_period_sales - item.previous_period_sales) / item.previous_period_sales * 100) : 
-        (item.current_period_sales > 0 ? 100 : 0)
+      
+      // ALL TIME METRICS with safe fallback values
+      allTimeSales: item.all_time_sales || 0,
+      allTimeQuantity: item.all_time_quantity || 0,
+      allTimeRevenue: item.all_time_revenue || 0,
+      allTimeCustomers: item.all_time_customers || 0,
+      
+      // PERFORMANCE METRICS with safe fallback values
+      monthlyAvgSales: item.monthly_avg_sales || 0,
+      peakMonth: item.peak_month || 'N/A',
+      peakQuantity: item.peak_quantity || 0,
+      recentPerformance: item.recent_performance || 0,
+      
+      // ANALYSIS METRICS with safe fallback values
+      growthTrend: item.growth_trend || 'stable_performance',
+      priceVsCategoryAvg: item.price_vs_category_avg || 1,
+      customerRetention: item.customer_retention || 0,
+      seasonalPattern: item.seasonal_pattern || 'consistent_year_round',
+      
+      // CALCULATED METRICS with safe operations
+      revenuePerSale: (item.all_time_revenue || 0) / Math.max(1, item.all_time_sales || 1),
+      marketShare: (item.all_time_revenue || 0) / menuSalesData.reduce((sum, i) => sum + (i.all_time_revenue || 0), 0) * 100,
+      consistencyScore: (item.recent_performance || 0) / Math.max(1, item.monthly_avg_sales || 1),
+      profitabilityIndex: (item.price_vs_category_avg || 1) * ((item.all_time_quantity || 0) / Math.max(1, menuSalesData.reduce((sum, i) => sum + (i.all_time_quantity || 0), 0) / menuSalesData.length))
     }));
 
-    // Create comprehensive AI prompt
+    // Create COMPREHENSIVE AI prompt with ALL TIME context
     const prompt = `
-Sebagai AI expert dalam analisis tren menu restoran, analisis data penjualan KOMPREHENSIF berikut untuk periode ${period}:
+Sebagai AI expert dalam analisis restoran dengan akses ke DATA HISTORIS LENGKAP, analisis performa menu KOMPREHENSIF berikut untuk prediksi periode ${period}:
 
-DATA PENJUALAN MENU (ALL TIME):
-${salesSummary.map(item => 
-  `- ${item.name} (${item.category}) - Harga: Rp${item.price.toLocaleString()}
-    ALL TIME Sales: ${item.allTimeSales} | Current Period: ${item.currentPeriodSales} | Previous: ${item.previousPeriodSales}
-    Total Revenue: Rp${item.totalRevenue.toLocaleString()} | Peak Month: ${item.peakMonth} (${item.peakSales} sales)
-    Order Frequency: ${item.orderFrequency} orders | Recent Trend: ${item.recentTrend}
-    Growth Rate: ${item.growthRate.toFixed(1)}%`
-).join('\n')}
+DATASET COMPREHENSIVE (SELURUH RIWAYAT PENJUALAN):
+${comprehensiveSummary.map(item => 
+  `🍽️ ${item.name} (${item.category}) - Harga: Rp${Number(item.price || 0).toLocaleString()}
+  📊 ALL TIME PERFORMANCE:
+  - Total Orders: ${item.allTimeSales} | Total Quantity: ${item.allTimeQuantity} | Total Revenue: Rp${Number(item.allTimeRevenue || 0).toLocaleString()}
+  - Unique Customers: ${item.allTimeCustomers} | Monthly Average: ${Number(item.monthlyAvgSales || 0).toFixed(1)}
+  - Peak Month: ${item.peakMonth} (${item.peakQuantity} quantity)
+  - Recent Performance: ${item.recentPerformance} (Consistency: ${Number(item.consistencyScore || 0).toFixed(2)})
+  
+  🔍 DEEP ANALYSIS:
+  - Growth Trend: ${item.growthTrend} | Customer Retention: ${Number(item.customerRetention || 0).toFixed(1)}%
+  - Price vs Category Avg: ${Number(item.priceVsCategoryAvg || 1).toFixed(2)}x | Market Share: ${Number(item.marketShare || 0).toFixed(2)}%
+  - Seasonal Pattern: ${item.seasonalPattern} | Profitability Index: ${Number(item.profitabilityIndex || 0).toFixed(2)}
+  - Revenue per Sale: Rp${Number(item.revenuePerSale || 0).toFixed(0)}`
+).join('\n\n')}
 
-Analisis setiap menu berdasarkan DATA HISTORIS LENGKAP dan tentukan tren untuk periode ${period} mendatang:
+COMPREHENSIVE ANALYSIS FRAMEWORK:
+Gunakan SELURUH DATA HISTORIS untuk pattern recognition yang akurat:
 
-KRITERIA ANALISIS:
-- Gunakan ALL TIME data untuk pattern recognition
-- RISING: Tren naik konsisten atau momentum kuat berdasarkan data historis
-- DECLINING: Tren turun konsisten atau penurunan signifikan dari peak performance
-- STABLE: Performa konsisten dengan fluktuasi minimal
-- NEW: Rekomendasi menu baru berdasarkan gap analysis dan seasonal patterns
+1. **TREND CLASSIFICATION:**
+   - RISING: Consistent growth pattern, high profitability index, atau recent performance > historical average
+   - DECLINING: Declining trend, low recent performance, atau seasonal downturn
+   - STABLE: Consistent performance, balanced metrics
+   - NEW: Rekomendasi menu baru berdasarkan gap analysis dan successful patterns
 
-FAKTOR YANG DIPERTIMBANGKAN:
-1. Historical performance (all time sales)
-2. Seasonal patterns (peak months)
-3. Recent momentum (growth rate)
-4. Revenue contribution
-5. Order frequency patterns
-6. Market positioning berdasarkan harga
+2. **HISTORICAL INTELLIGENCE:**
+   - Analisis peak performance periods untuk timing strategy
+   - Customer retention patterns untuk loyalty prediction
+   - Seasonal trends untuk cyclical planning
+   - Price positioning untuk competitive advantage
 
-Untuk setiap menu, berikan:
-1. Trend prediction berdasarkan comprehensive data
-2. Prediksi sales realistis untuk periode mendatang
-3. Reasoning mendalam mengapa trend tersebut (gunakan historical data)
-4. 2-3 rekomendasi aksi spesifik berdasarkan data
-5. Confidence level berdasarkan konsistensi historical data
+3. **COMPREHENSIVE REASONING:**
+   Berikan reasoning yang mendalam berdasarkan:
+   - Complete sales history dan growth patterns
+   - Customer behavior (retention, frequency)
+   - Market positioning (price vs category, market share)
+   - Seasonal performance patterns
+   - Revenue optimization opportunities
 
-Format JSON response:
+4. **STRATEGIC RECOMMENDATIONS:**
+   - Tactical: Immediate actions (pricing, promotion, positioning)
+   - Strategic: Long-term growth (menu development, customer acquisition)
+   - Operational: Execution (timing, targeting, resource allocation)
+
+Format JSON response dengan confidence tinggi berdasarkan data comprehensive:
 {
   "trends": [
     {
       "trend": "rising",
       "itemName": "Nama Menu",
       "currentSales": 45,
-      "predictedSales": 60,
-      "growthRate": 33.3,
-      "reasoning": "Berdasarkan data historis menunjukkan tren naik konsisten dengan peak di bulan X",
+      "predictedSales": 65,
+      "growthRate": 44.4,
+      "reasoning": "Comprehensive analysis menunjukkan consistent growth pattern dengan peak performance di [bulan], customer retention [%], market share [%], dan seasonal advantage di [pattern]. Historical data menunjukkan [specific insights].",
       "recommendations": [
-        "Rekomendasi berdasarkan historical pattern",
-        "Aksi strategis berdasarkan data"
+        "Strategic action berdasarkan historical peak performance",
+        "Tactical recommendation berdasarkan customer retention pattern",
+        "Operational optimization berdasarkan seasonal trends"
       ],
-      "category": "Main Course",
-      "seasonality": "Peak performance di bulan tertentu berdasarkan data",
-      "confidence": 85
+      "category": "kategori",
+      "seasonality": "Detailed seasonal insight dari historical data",
+      "confidence": 92
     }
   ]
 }
 
-PENTING: Berikan analisis yang mendalam berdasarkan SELURUH DATA HISTORIS, bukan hanya periode terbatas.
+CRITICAL: Berikan analisis yang 100% data-driven berdasarkan SELURUH RIWAYAT HISTORIS untuk akurasi maksimal.
 `;
 
     try {
-      const aiResponse = await callGroqLLM(prompt, 2048, 0.3);
-      console.log('AI response received for comprehensive menu trends');
+      const aiResponse = await callGroqLLM(prompt, 4096, 0.3);
+      console.log('🤖 AI Response received for comprehensive menu trends');
       
-      // Parse AI response
+      // Enhanced parsing with comprehensive error handling
       let cleanedContent = aiResponse.trim();
       cleanedContent = cleanedContent.replace(/```json\n?/g, '').replace(/```\n?/g, '');
       
@@ -297,39 +332,24 @@ PENTING: Berikan analisis yang mendalam berdasarkan SELURUH DATA HISTORIS, bukan
       const aiResult = JSON.parse(jsonString);
       
       if (aiResult.trends && Array.isArray(aiResult.trends)) {
-        // Process and validate AI trends
-        const processedTrends = aiResult.trends.map((trend: any) => ({
-          trend: trend.trend || 'stable',
-          itemName: trend.itemName || 'Unknown Menu',
-          currentSales: Number(trend.currentSales) || 0,
-          predictedSales: Number(trend.predictedSales) || 0,
-          growthRate: Number(trend.growthRate) || 0,
-          reasoning: trend.reasoning || 'Analysis based on comprehensive sales data',
-          recommendations: Array.isArray(trend.recommendations) ? trend.recommendations : [],
-          category: trend.category || 'General',
-          seasonality: trend.seasonality || '',
-          confidence: Math.min(100, Math.max(0, Number(trend.confidence) || 70))
-        }));
-
-        // Calculate summary
-        const summary = calculateTrendSummary(processedTrends);
-
-        console.log(`Generated ${processedTrends.length} comprehensive menu trend predictions`);
-
+        console.log(`✅ Generated ${aiResult.trends.length} AI trend analyses`);
+        
+        const summary = calculateComprehensiveTrendSummary(aiResult.trends, menuSalesData);
+        
         return {
-          trends: processedTrends,
+          trends: aiResult.trends,
           summary
         };
       } else {
-        throw new Error('Invalid AI trends format');
+        throw new Error('Invalid AI response format');
       }
 
     } catch (aiError) {
-      console.error('AI analysis failed, using comprehensive fallback algorithm:', aiError);
+      console.error('🔄 AI generation failed, using enhanced fallback:', aiError);
       
-      // Fallback: Generate trends based on comprehensive mathematical analysis
-      const fallbackTrends = generateComprehensiveFallbackTrends(menuSalesData);
-      const summary = calculateTrendSummary(fallbackTrends);
+      // Enhanced fallback using ALL TIME data
+      const fallbackTrends = generateEnhancedComprehensiveFallbackTrends(menuSalesData);
+      const summary = calculateComprehensiveTrendSummary(fallbackTrends, menuSalesData);
       
       return {
         trends: fallbackTrends,
@@ -338,104 +358,110 @@ PENTING: Berikan analisis yang mendalam berdasarkan SELURUH DATA HISTORIS, bukan
     }
 
   } catch (error) {
-    console.error('Error generating comprehensive menu trends:', error);
+    console.error('❌ Error generating comprehensive menu trends:', error);
     throw error;
   }
 }
 
-// Comprehensive fallback trend analysis using ALL TIME DATA
-function generateComprehensiveFallbackTrends(menuSalesData: MenuSalesData[]): MenuTrend[] {
+// Enhanced comprehensive fallback using ALL TIME DATA - FIXED
+function generateEnhancedComprehensiveFallbackTrends(menuSalesData: MenuSalesData[]): MenuTrend[] {
   return menuSalesData.map(item => {
-    // Calculate comprehensive growth rate
-    const growthRate = item.previous_period_sales > 0 ? 
-      ((item.current_period_sales - item.previous_period_sales) / item.previous_period_sales * 100) : 
-      (item.current_period_sales > 0 ? 100 : 0);
-
-    // Determine trend based on comprehensive data
+    // Comprehensive trend analysis using all available metrics with safe calculations
     let trend: 'rising' | 'declining' | 'stable' = 'stable';
+    let confidence = 70;
     
-    // Use ALL TIME data for better trend analysis
-    const allTimeAverage = item.all_time_sales / Math.max(1, item.avg_order_frequency);
-    const recentPerformance = item.current_period_sales;
+    // Multi-factor trend determination with safe operations
+    const consistencyScore = (item.recent_performance || 0) / Math.max(1, item.monthly_avg_sales || 1);
+    const profitabilityIndex = (item.price_vs_category_avg || 1) * ((item.all_time_quantity || 0) / Math.max(1, (item.all_time_revenue || 0) / (item.Harga || 1)));
+    const retentionFactor = (item.customer_retention || 0) / 100;
     
-    if (item.recent_trend === 'increasing' && growthRate > 10) {
+    // Comprehensive trend logic
+    if (item.growth_trend === 'consistently_growing' || 
+        (consistencyScore > 1.2 && profitabilityIndex > 1.1) ||
+        ((item.customer_retention || 0) > 50 && (item.recent_performance || 0) > (item.monthly_avg_sales || 0))) {
       trend = 'rising';
-    } else if (item.recent_trend === 'decreasing' && growthRate < -10) {
+      confidence = 85;
+    } else if (item.growth_trend === 'declining_trend' || 
+               (consistencyScore < 0.8 && (item.customer_retention || 0) < 30) ||
+               (item.recent_performance || 0) < (item.monthly_avg_sales || 0) * 0.7) {
       trend = 'declining';
-    } else if (recentPerformance > allTimeAverage * 1.2) {
-      trend = 'rising';
-    } else if (recentPerformance < allTimeAverage * 0.8) {
-      trend = 'declining';
+      confidence = 80;
+    } else {
+      confidence = 75;
     }
 
-    // Predict future sales based on comprehensive analysis
-    let predictedSales = item.current_period_sales;
+    // Comprehensive sales prediction with safe calculations
+    let predictedSales = item.recent_performance || 0;
     
     if (trend === 'rising') {
-      predictedSales = Math.round(item.current_period_sales * 1.2);
+      predictedSales = Math.round((item.monthly_avg_sales || 0) * 1.3 * (1 + retentionFactor));
     } else if (trend === 'declining') {
-      predictedSales = Math.round(item.current_period_sales * 0.8);
+      predictedSales = Math.round((item.monthly_avg_sales || 0) * 0.8);
     } else {
-      predictedSales = Math.round(item.current_period_sales * 1.05);
+      predictedSales = Math.round((item.monthly_avg_sales || 0) * 1.05);
     }
 
-    // Generate comprehensive reasoning
+    // Growth rate calculation with safe division
+    const growthRate = (item.monthly_avg_sales || 0) > 0 ? 
+      ((predictedSales - (item.monthly_avg_sales || 0)) / (item.monthly_avg_sales || 0) * 100) : 0;
+
+    // Comprehensive reasoning with safe string operations
     let reasoning = '';
     if (trend === 'rising') {
-      reasoning = `Menu menunjukkan tren positif dengan total penjualan ${item.all_time_sales} sepanjang masa. Peak performance di ${item.peak_month} dengan ${item.peak_sales} penjualan. Recent trend: ${item.recent_trend}. Growth rate: ${growthRate.toFixed(1)}%.`;
+      reasoning = `Comprehensive analysis menunjukkan tren positif dengan total ${item.all_time_quantity || 0} quantity terjual sepanjang masa. Peak performance ${item.peak_quantity || 0} di ${item.peak_month || 'N/A'}. Customer retention ${Number(item.customer_retention || 0).toFixed(1)}%, growth trend: ${item.growth_trend || 'N/A'}. Price positioning ${Number(item.price_vs_category_avg || 1).toFixed(2)}x category average memberikan competitive advantage.`;
     } else if (trend === 'declining') {
-      reasoning = `Penjualan menurun dari peak ${item.peak_sales} di ${item.peak_month}. Current performance ${item.current_period_sales} vs previous ${item.previous_period_sales}. Recent trend: ${item.recent_trend}. Perlu evaluasi.`;
+      reasoning = `Analisis menunjukkan penurunan dari peak ${item.peak_quantity || 0} di ${item.peak_month || 'N/A'}. Recent performance ${item.recent_performance || 0} vs monthly average ${Number(item.monthly_avg_sales || 0).toFixed(1)}. Customer retention ${Number(item.customer_retention || 0).toFixed(1)}%, growth trend: ${item.growth_trend || 'N/A'}. Seasonal pattern: ${item.seasonal_pattern || 'N/A'}.`;
     } else {
-      reasoning = `Menu stabil dengan total penjualan ${item.all_time_sales} sepanjang masa. Konsisten dengan rata-rata ${Math.round(item.all_time_sales / Math.max(1, item.avg_order_frequency))} per order. Recent trend: ${item.recent_trend}.`;
+      reasoning = `Menu stabil dengan ${item.all_time_quantity || 0} total quantity dan ${item.all_time_customers || 0} unique customers. Monthly average ${Number(item.monthly_avg_sales || 0).toFixed(1)}, customer retention ${Number(item.customer_retention || 0).toFixed(1)}%. Growth trend: ${item.growth_trend || 'N/A'}, seasonal pattern: ${item.seasonal_pattern || 'N/A'}.`;
     }
 
-    // Generate comprehensive recommendations
+    // Comprehensive recommendations with safe operations
     const recommendations = [];
     if (trend === 'rising') {
-      recommendations.push(`Maksimalkan momentum dengan promosi khusus (peak month: ${item.peak_month})`);
-      recommendations.push(`Pertahankan kualitas dan konsistensi produk`);
-      recommendations.push(`Tingkatkan stock untuk mengantisipasi demand`);
+      recommendations.push(`Leverage peak performance timing (${item.peak_month || 'N/A'}) untuk seasonal campaigns`);
+      recommendations.push(`Optimize pricing strategy (current ${Number(item.price_vs_category_avg || 1).toFixed(2)}x category average)`);
+      recommendations.push(`Enhance customer retention programs (current ${Number(item.customer_retention || 0).toFixed(1)}%)`);
     } else if (trend === 'declining') {
-      recommendations.push(`Analisis penyebab penurunan dari peak ${item.peak_sales} penjualan`);
-      recommendations.push(`Pertimbangkan penyesuaian resep atau presentasi`);
-      recommendations.push(`Buat promosi reaktivasi untuk mengembalikan popularitas`);
+      recommendations.push(`Reactivation campaign targeting ${item.all_time_customers || 0} historical customers`);
+      recommendations.push(`Price review - consider promotional pricing vs current ${Number(item.price_vs_category_avg || 1).toFixed(2)}x category`);
+      recommendations.push(`Seasonal repositioning based on ${item.seasonal_pattern || 'N/A'} pattern`);
     } else {
-      recommendations.push(`Pertahankan standar kualitas yang konsisten`);
-      recommendations.push(`Monitor kompetitor dan tren pasar`);
-      recommendations.push(`Pertimbangkan variasi menu untuk meningkatkan appeal`);
+      recommendations.push(`Maintain consistency while exploring growth opportunities`);
+      recommendations.push(`Monitor competitive pricing (currently ${Number(item.price_vs_category_avg || 1).toFixed(2)}x category)`);
+      recommendations.push(`Leverage ${item.seasonal_pattern || 'N/A'} pattern untuk strategic timing`);
     }
-
-    // Calculate confidence based on data consistency
-    const dataConsistency = item.avg_order_frequency > 0 ? 
-      Math.min(95, 60 + Math.log10(item.all_time_sales + 1) * 5) : 50;
 
     return {
       trend,
       itemName: item.Nama_Menu,
-      currentSales: item.current_period_sales,
+      currentSales: Math.round(item.monthly_avg_sales || 0),
       predictedSales,
       growthRate: Number(growthRate.toFixed(1)),
       reasoning,
       recommendations,
       category: item.Kategori,
-      seasonality: item.peak_month ? `Peak performance di ${item.peak_month}` : 'Data historis menunjukkan pola konsisten',
-      confidence: Math.round(dataConsistency)
+      seasonality: `${item.seasonal_pattern || 'N/A'}, peak performance: ${item.peak_month || 'N/A'}`,
+      confidence: Math.round(confidence)
     };
   });
 }
 
-// Calculate trend summary statistics
-function calculateTrendSummary(trends: MenuTrend[]): TrendSummary {
+// Calculate comprehensive trend summary with enhanced metrics - FIXED
+function calculateComprehensiveTrendSummary(trends: MenuTrend[], originalData: MenuSalesData[]): TrendSummary {
   const risingTrends = trends.filter(t => t.trend === 'rising').length;
   const decliningTrends = trends.filter(t => t.trend === 'declining').length;
   const stableTrends = trends.filter(t => t.trend === 'stable').length;
   const newOpportunities = trends.filter(t => t.trend === 'new').length;
 
-  // Calculate estimated revenue impact based on predicted changes
+  // Enhanced revenue impact calculation using historical data with safe operations
   const estimatedRevenueImpact = trends.reduce((total, trend) => {
-    const salesChange = trend.predictedSales - trend.currentSales;
-    // Assume average price of Rp 25,000 per item
-    return total + (salesChange * 25000);
+    const originalItem = originalData.find(item => item.Nama_Menu === trend.itemName);
+    if (originalItem) {
+      const salesChange = trend.predictedSales - trend.currentSales;
+      const avgRevenuePerSale = (originalItem.all_time_revenue || 0) / Math.max(1, originalItem.all_time_sales || 1);
+      return total + (salesChange * avgRevenuePerSale);
+    }
+    return total + (trend.predictedSales - trend.currentSales) * 25000; // fallback
   }, 0);
 
   return {
