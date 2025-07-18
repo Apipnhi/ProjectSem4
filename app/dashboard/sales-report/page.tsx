@@ -1,4 +1,4 @@
-// app/dashboard/sales-report/page.tsx - Fixed version
+// app/dashboard/sales-report/page.tsx - Complete Fixed version
 "use client"
 
 import { useState, useEffect } from "react"
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { TrendingUp, Calendar, Download, Sparkles, Star, CheckCircle, Clock, Pause, Play, AlertTriangle } from "lucide-react"
+import { TrendingUp, Calendar, Download, Sparkles, Star, CheckCircle, Clock, Pause, Play, AlertTriangle, RefreshCw } from "lucide-react"
 import {
   Area,
   AreaChart,
@@ -22,6 +22,9 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  PieChart,
+  Pie,
+  Cell
 } from "recharts"
 
 // Types for API responses
@@ -33,6 +36,12 @@ interface SalesData {
   sales: number;
   orders: number;
   avgOrder: number;
+  cumulative_sales?: number;
+  growth_rate?: number;
+  market_share?: number;
+  customer_acquisition?: number;
+  retention_rate?: number;
+  seasonal_index?: number;
   [key: string]: string | number | undefined;
 }
 
@@ -45,6 +54,10 @@ interface SalesOverview {
     totalOrders: number;
     avgOrderValue: number;
     growthRate: number;
+    customerLifetimeValue?: number;
+    marketPenetration?: number;
+    seasonalityIndex?: number;
+    revenuePerCustomer?: number;
   };
 }
 
@@ -56,6 +69,11 @@ interface TopProduct {
   total_revenue: number;
   avg_price: number;
   category: string;
+  id_restaurant?: number;
+  restaurant_name?: string;
+  growth_rate?: number;
+  market_share?: number;
+  popularity_index?: number;
 }
 
 interface Feedback {
@@ -66,6 +84,9 @@ interface Feedback {
   customer_name: string;
   restaurant_name: string;
   status: string;
+  id_restaurant?: number;
+  sentiment_score?: number;
+  category?: string;
 }
 
 interface FeedbackSummary {
@@ -78,12 +99,31 @@ interface FeedbackSummary {
   one_star: number;
   recent_feedback: number;
   pending_feedback: number;
+  sentiment_analysis?: {
+    positive: number;
+    neutral: number;
+    negative: number;
+  };
+  trend_data?: Array<{
+    month: string;
+    avg_rating: number;
+    count: number;
+  }>;
 }
 
 interface Predictions {
   nextDay?: { sales: number; confidence: number };
   nextMonth?: { sales: number; confidence: number };
   nextYear?: { sales: number; confidence: number };
+}
+
+interface TopMenuPrediction {
+  menu_name: string;
+  predicted_sales: number;
+  confidence: number;
+  reasoning: string;
+  trend: 'rising' | 'stable' | 'declining';
+  recommendation: string;
 }
 
 interface Promotion {
@@ -107,11 +147,18 @@ interface AppliedPromotion extends Promotion {
   };
 }
 
+interface RushHourData {
+  hour: number;
+  orders: number;
+  revenue: number;
+  avg_order_value: number;
+}
+
 export default function SalesReportPage() {
   // State for data
   const [salesOverview, setSalesOverview] = useState<SalesOverview | null>(null);
   const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
-  const [rushHourData, setRushHourData] = useState<any[]>([]);
+  const [rushHourData, setRushHourData] = useState<RushHourData[]>([]);
   const [feedback, setFeedback] = useState<Feedback[]>([]);
   const [feedbackSummary, setFeedbackSummary] = useState<FeedbackSummary | null>(null);
   
@@ -121,11 +168,12 @@ export default function SalesReportPage() {
   const [timeFilter, setTimeFilter] = useState<string>("latest");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
   // State for AI predictions
   const [isGeneratingPrediction, setIsGeneratingPrediction] = useState(false);
   const [predictions, setPredictions] = useState<Predictions | null>(null);
-  const [topMenuPrediction, setTopMenuPrediction] = useState<any[] | null>(null);
+  const [topMenuPrediction, setTopMenuPrediction] = useState<TopMenuPrediction[] | null>(null);
   const [isPredictingTopMenu, setIsPredictingTopMenu] = useState(false);
   const [predictionError, setPredictionError] = useState<string | null>(null);
 
@@ -154,12 +202,19 @@ export default function SalesReportPage() {
     return numValue.toFixed(decimals);
   };
 
+  // Helper function to format percentage
+  const formatPercentage = (value: number | string | undefined) => {
+    const numValue = Number(value) || 0;
+    return `${numValue >= 0 ? '+' : ''}${numValue.toFixed(1)}%`;
+  };
+
   // Fetch sales overview data
   const fetchSalesOverview = async () => {
     try {
       setIsLoading(true);
       setError(null);
       
+      console.log('Fetching sales overview...');
       const response = await fetch('/api/sales-report');
       
       if (!response.ok) {
@@ -167,6 +222,7 @@ export default function SalesReportPage() {
       }
       
       const data = await response.json();
+      console.log('Sales overview response:', data);
       
       if (data.success && data.data) {
         // Set overview data from the API response structure
@@ -181,6 +237,8 @@ export default function SalesReportPage() {
           setFeedback(data.data.feedback.items || []);
           setFeedbackSummary(data.data.feedback.summary);
         }
+        
+        setLastUpdated(new Date());
       } else {
         setError(data.error || 'Failed to fetch sales data');
       }
@@ -195,6 +253,7 @@ export default function SalesReportPage() {
   // Fetch top products data
   const fetchTopProducts = async () => {
     try {
+      console.log('Fetching top products...');
       const response = await fetch('/api/sales-report?type=top-products');
       
       if (!response.ok) {
@@ -202,6 +261,7 @@ export default function SalesReportPage() {
       }
       
       const data = await response.json();
+      console.log('Top products response:', data);
       
       if (data.success) {
         setTopProducts(data.data);
@@ -215,6 +275,7 @@ export default function SalesReportPage() {
   // Fetch rush hour data
   const fetchRushHourData = async () => {
     try {
+      console.log('Fetching rush hour data...');
       const response = await fetch('/api/sales-report?type=rush-hour');
       
       if (!response.ok) {
@@ -222,6 +283,7 @@ export default function SalesReportPage() {
       }
       
       const data = await response.json();
+      console.log('Rush hour response:', data);
       
       if (data.success) {
         setRushHourData(data.data);
@@ -235,13 +297,14 @@ export default function SalesReportPage() {
   // Fetch feedback data
   const fetchFeedback = async () => {
     try {
+      console.log('Fetching feedback...');
       const response = await fetch(`/api/feedback?rating=${ratingFilter}&status=approved&sort=${timeFilter}&limit=20`);
       const data = await response.json();
+      console.log('Feedback response:', data);
       
       if (data.success) {
         setFeedback(data.data || []);
         setFeedbackSummary(data.summary);
-        console.log('Feedback loaded:', data.data?.length, 'items');
       } else {
         console.error('Failed to fetch feedback:', data.error);
         setFeedback([]);
@@ -254,12 +317,30 @@ export default function SalesReportPage() {
     }
   };
 
+  // Fetch applied promotions
+  const fetchAppliedPromotions = async () => {
+    try {
+      console.log('Fetching applied promotions...');
+      const response = await fetch('/api/promotions/applied');
+      const data = await response.json();
+      console.log('Applied promotions response:', data);
+      
+      if (data.success) {
+        setAppliedPromotions(data.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching applied promotions:', error);
+      setAppliedPromotions([]);
+    }
+  };
+
   // Generate AI predictions
   const generatePredictions = async () => {
     setIsGeneratingPrediction(true);
     setPredictionError(null);
     
     try {
+      console.log('Generating predictions...');
       const response = await fetch("/api/generate-predictions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -267,93 +348,99 @@ export default function SalesReportPage() {
       });
 
       const data = await response.json();
-      if (data.predictions) {
+      console.log('Predictions response:', data);
+      
+      if (data.success && data.predictions) {
         setPredictions(data.predictions);
       } else {
-        setPredictionError("Failed to generate predictions");
+        setPredictionError(data.error || "Failed to generate predictions");
       }
     } catch (error) {
       console.error("Error generating predictions:", error);
       setPredictionError("Error generating predictions");
-      // Fallback predictions
-      setPredictions({
-        nextDay: { sales: 85000, confidence: 85 },
-        nextMonth: { sales: 2500000, confidence: 78 },
-        nextYear: { sales: 30000000, confidence: 70 }
-      });
     } finally {
       setIsGeneratingPrediction(false);
     }
   };
 
-  // Generate Top Menu Predictions  
-  const generateTopMenuPrediction = async () => {
+  // Generate top menu predictions
+  const generateTopMenuPredictions = async () => {
     setIsPredictingTopMenu(true);
     setPredictionError(null);
     
     try {
+      console.log('Generating top menu predictions...');
       const response = await fetch("/api/predict-top-menu", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
 
       const data = await response.json();
-      if (data.success) {
+      console.log('Top menu predictions response:', data);
+      
+      if (data.success && data.predictions) {
         setTopMenuPrediction(data.predictions);
       } else {
-        setPredictionError(data.error || "Failed to generate menu predictions");
+        setPredictionError(data.error || "Failed to generate top menu predictions");
       }
     } catch (error) {
-      console.error("Error predicting top menu:", error);
-      setPredictionError("Error generating menu predictions");
+      console.error("Error generating top menu predictions:", error);
+      setPredictionError("Error generating top menu predictions");
     } finally {
       setIsPredictingTopMenu(false);
     }
   };
 
-  // Generate Promo Recommendations
+  // Generate promotion recommendations
   const generatePromoRecommendations = async () => {
     setIsGeneratingPromos(true);
     setPromoError(null);
     
     try {
-      const response = await fetch("/api/generate-promos", {
+      console.log('Generating promotion recommendations...');
+      const response = await fetch("/api/generate-promotions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
 
       const data = await response.json();
-      if (data.success) {
+      console.log('Promotion recommendations response:', data);
+      
+      if (data.success && data.recommendations) {
         setPromoRecommendations(data.recommendations);
       } else {
-        setPromoError(data.error || "Failed to generate recommendations");
+        setPromoError(data.error || "Failed to generate promotion recommendations");
       }
     } catch (error) {
-      console.error("Error generating promos:", error);
-      setPromoError("Error generating promo recommendations");
+      console.error("Error generating promotion recommendations:", error);
+      setPromoError("Error generating promotion recommendations");
     } finally {
       setIsGeneratingPromos(false);
     }
   };
 
-  // Apply Promotion
-  const applyPromotion = async (promo: Promotion) => {
-    setIsApplyingPromo(promo.type);
+  // Apply promotion
+  const applyPromotion = async (promotion: Promotion) => {
+    setIsApplyingPromo(promotion.type);
     setPromoError(null);
     setApplySuccess(null);
     
     try {
-      const response = await fetch("/api/apply-promotion", {
+      console.log('Applying promotion:', promotion);
+      const response = await fetch("/api/promotions/apply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(promo),
+        body: JSON.stringify(promotion),
       });
 
       const data = await response.json();
+      console.log('Apply promotion response:', data);
+      
       if (data.success) {
-        setApplySuccess(`${promo.type} promotion applied successfully!`);
-        // Refresh applied promotions
-        fetchAppliedPromotions();
+        setApplySuccess(`Promotion "${promotion.type}" applied successfully!`);
+        await fetchAppliedPromotions();
+        // Clear success message after 3 seconds
+        setTimeout(() => setApplySuccess(null), 3000);
       } else {
         setPromoError(data.error || "Failed to apply promotion");
       }
@@ -365,40 +452,41 @@ export default function SalesReportPage() {
     }
   };
 
-  // Fetch Applied Promotions
-  const fetchAppliedPromotions = async () => {
-    try {
-      const response = await fetch("/api/applied-promotions");
-      const data = await response.json();
-      
-      if (data.success) {
-        setAppliedPromotions(data.promotions);
-      }
-    } catch (error) {
-      console.error("Error fetching applied promotions:", error);
-    }
-  };
-
-  // Toggle Promotion Status
+  // Toggle promotion status
   const togglePromotionStatus = async (id: string, newStatus: 'active' | 'paused' | 'completed') => {
     try {
-      const response = await fetch(`/api/applied-promotions/${id}`, {
-        method: "PATCH",
+      console.log('Toggling promotion status:', id, newStatus);
+      const response = await fetch(`/api/promotions/toggle/${id}`, {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       });
 
-      if (response.ok) {
-        fetchAppliedPromotions();
+      const data = await response.json();
+      console.log('Toggle promotion response:', data);
+      
+      if (data.success) {
+        await fetchAppliedPromotions();
       }
     } catch (error) {
       console.error("Error toggling promotion status:", error);
     }
   };
 
+  // Refresh all data
+  const refreshData = async () => {
+    await Promise.all([
+      fetchSalesOverview(),
+      fetchTopProducts(),
+      fetchRushHourData(),
+      fetchFeedback(),
+      fetchAppliedPromotions()
+    ]);
+  };
+
   // Export report
   const exportReport = () => {
-    // Simple CSV export
+    const currentData = getCurrentData();
     const csvData = currentData.map(item => {
       const key = reportPeriod === 'daily' ? 'date' : reportPeriod === 'monthly' ? 'month_name' : 'year';
       return `${item[key]},${item.sales},${item.orders},${item.avgOrder}`;
@@ -408,19 +496,31 @@ export default function SalesReportPage() {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `sales-report-${reportPeriod}.csv`;
+    a.download = `sales-report-${reportPeriod}-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
+    window.URL.revokeObjectURL(url);
   };
 
   // Load data on component mount and when filters change
   useEffect(() => {
     fetchSalesOverview();
     fetchAppliedPromotions();
+    fetchRushHourData();
   }, []);
 
   useEffect(() => {
     fetchFeedback();
   }, [ratingFilter, timeFilter]);
+
+  useEffect(() => {
+    fetchTopProducts();
+  }, []);
+
+  // Auto refresh every 5 minutes
+  useEffect(() => {
+    const interval = setInterval(refreshData, 300000); // 5 minutes
+    return () => clearInterval(interval);
+  }, []);
 
   // Get current data based on selected period
   const getCurrentData = () => {
@@ -462,7 +562,11 @@ export default function SalesReportPage() {
       totalSales: 0,
       totalOrders: 0,
       avgOrderValue: 0,
-      growthRate: 0
+      growthRate: 0,
+      customerLifetimeValue: 0,
+      marketPenetration: 0,
+      seasonalityIndex: 0,
+      revenuePerCustomer: 0
     };
 
     if (!salesOverview?.summary) {
@@ -475,18 +579,34 @@ export default function SalesReportPage() {
       totalSales: Number(summary.totalSales) || 0,
       totalOrders: Number(summary.totalOrders) || 0,
       avgOrderValue: Number(summary.avgOrderValue) || 0,
-      growthRate: Number(summary.growthRate) || 0
+      growthRate: Number(summary.growthRate) || 0,
+      customerLifetimeValue: Number(summary.customerLifetimeValue) || 0,
+      marketPenetration: Number(summary.marketPenetration) || 0,
+      seasonalityIndex: Number(summary.seasonalityIndex) || 0,
+      revenuePerCustomer: Number(summary.revenuePerCustomer) || 0
     };
   };
 
   const summaryData = getSummaryData();
 
+  // Prepare chart colors
+  const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
+
   return (
     <DashboardLayout title="Sales Report">
       <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
         <div className="flex items-center justify-between space-y-2">
-          <h2 className="text-3xl font-bold tracking-tight">Sales Report</h2>
+          <div>
+            <h2 className="text-3xl font-bold tracking-tight">Sales Report</h2>
+            <p className="text-sm text-gray-500">
+              Last updated: {lastUpdated.toLocaleString()}
+            </p>
+          </div>
           <div className="flex items-center space-x-2">
+            <Button onClick={refreshData} variant="outline" size="sm">
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh
+            </Button>
             <Select value={reportPeriod} onValueChange={setReportPeriod}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Select period" />
@@ -508,17 +628,9 @@ export default function SalesReportPage() {
         {error && (
           <Card className="border-red-200 bg-red-50">
             <CardContent className="pt-6">
-              <div className="flex items-center">
-                <AlertTriangle className="h-4 w-4 text-red-500 mr-2" />
-                <span className="text-red-700">{error}</span>
-                <Button 
-                  onClick={fetchSalesOverview} 
-                  variant="outline" 
-                  size="sm" 
-                  className="ml-4"
-                >
-                  Retry
-                </Button>
+              <div className="flex items-center space-x-2 text-red-700">
+                <AlertTriangle className="h-5 w-5" />
+                <span>{error}</span>
               </div>
             </CardContent>
           </Card>
@@ -526,624 +638,807 @@ export default function SalesReportPage() {
 
         {/* Loading State */}
         {isLoading && (
-          <div className="flex items-center justify-center h-32">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
-              <p className="mt-2 text-gray-600">Loading sales data...</p>
-            </div>
-          </div>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-center h-32">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <span className="ml-2">Loading sales data...</span>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Summary Cards */}
-        {!isLoading && !error && (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Sales</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{formatCurrency(summaryData.totalSales)}</div>
+              <p className="text-xs text-muted-foreground">
+                {formatPercentage(summaryData.growthRate)} from last period
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{summaryData.totalOrders.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground">
+                Orders processed
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Average Order Value</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{formatCurrency(summaryData.avgOrderValue)}</div>
+              <p className="text-xs text-muted-foreground">
+                Per order average
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Growth Rate</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {formatPercentage(summaryData.growthRate)}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Growth trend
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Additional Metrics */}
+        {(summaryData.customerLifetimeValue > 0 || summaryData.marketPenetration > 0) && (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Total Sales</CardTitle>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Customer Lifetime Value</CardTitle>
                 <TrendingUp className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(summaryData.totalSales)}</div>
+                <div className="text-2xl font-bold">{formatCurrency(summaryData.customerLifetimeValue)}</div>
                 <p className="text-xs text-muted-foreground">
-                  <span className={`${summaryData.growthRate >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                    {summaryData.growthRate >= 0 ? '+' : ''}{safeToFixed(summaryData.growthRate)}%
-                  </span> from last period
+                  Average customer value
                 </p>
               </CardContent>
             </Card>
+
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{summaryData.totalOrders.toLocaleString()}</div>
-                <p className="text-xs text-muted-foreground">
-                  <span className="text-green-500">+8.2%</span> from last period
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Average Order</CardTitle>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Market Penetration</CardTitle>
                 <TrendingUp className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(Math.round(summaryData.avgOrderValue))}</div>
+                <div className="text-2xl font-bold">{safeToFixed(summaryData.marketPenetration)}%</div>
                 <p className="text-xs text-muted-foreground">
-                  <span className="text-green-500">+3.1%</span> from last period
+                  Market share
                 </p>
               </CardContent>
             </Card>
+
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">Growth Rate</CardTitle>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Seasonality Index</CardTitle>
                 <TrendingUp className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{safeToFixed(summaryData.growthRate)}%</div>
+                <div className="text-2xl font-bold">{safeToFixed(summaryData.seasonalityIndex)}</div>
                 <p className="text-xs text-muted-foreground">
-                  Period over period growth
+                  Seasonal performance
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Revenue per Customer</CardTitle>
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatCurrency(summaryData.revenuePerCustomer)}</div>
+                <p className="text-xs text-muted-foreground">
+                  Per customer revenue
                 </p>
               </CardContent>
             </Card>
           </div>
         )}
 
-        {/* AI Predictions Card */}
+        {/* Sales Chart */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5" />
-              AI Sales Predictions
-            </CardTitle>
+            <CardTitle>Sales Overview</CardTitle>
             <CardDescription>
-              AI-powered predictions based on historical data and trends
+              {reportPeriod.charAt(0).toUpperCase() + reportPeriod.slice(1)} sales performance
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-2 mb-4">
-              <Button
-                onClick={generatePredictions}
-                disabled={isGeneratingPrediction}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                {isGeneratingPrediction ? "Generating..." : "Generate Predictions"}
-              </Button>
-              <Button
-                onClick={generateTopMenuPrediction}
-                disabled={isPredictingTopMenu}
-                variant="outline"
-              >
-                {isPredictingTopMenu ? "Predicting..." : "Predict Top Menu"}
-              </Button>
-            </div>
-
-            {predictionError && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-red-700 text-sm">{predictionError}</p>
-              </div>
-            )}
-
-            {predictions && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                <div className="text-center p-4 border rounded-lg">
-                  <h3 className="font-semibold text-lg">Next Day</h3>
-                  <p className="text-2xl font-bold text-navy-blue">{formatCurrency(predictions.nextDay?.sales || 0)}</p>
-                  <Badge className="mt-2 bg-green-500">{predictions.nextDay?.confidence}% Confidence</Badge>
-                </div>
-                <div className="text-center p-4 border rounded-lg">
-                  <h3 className="font-semibold text-lg">Next Month</h3>
-                  <p className="text-2xl font-bold text-navy-blue">{formatCurrency(predictions.nextMonth?.sales || 0)}</p>
-                  <Badge className="mt-2 bg-yellow-500">{predictions.nextMonth?.confidence}% Confidence</Badge>
-                </div>
-                <div className="text-center p-4 border rounded-lg">
-                  <h3 className="font-semibold text-lg">Next Year</h3>
-                  <p className="text-2xl font-bold text-navy-blue">{formatCurrency(predictions.nextYear?.sales || 0)}</p>
-                  <Badge className="mt-2 bg-orange-500">{predictions.nextYear?.confidence}% Confidence</Badge>
-                </div>
-              </div>
-            )}
+            <ResponsiveContainer width="100%" height={350}>
+              <AreaChart data={currentData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey={dataKey} />
+                <YAxis />
+                <Tooltip 
+                  formatter={(value: number, name: string) => [
+                    name === 'sales' ? formatCurrency(value) : value.toLocaleString(),
+                    name === 'sales' ? 'Sales' : name === 'orders' ? 'Orders' : 'Avg Order'
+                  ]}
+                />
+                <Legend />
+                <Area 
+                  type="monotone" 
+                  dataKey="sales" 
+                  stroke="#8884d8" 
+                  fill="#8884d8" 
+                  fillOpacity={0.6}
+                  name="Sales"
+                />
+                <Area 
+                  type="monotone" 
+                  dataKey="orders" 
+                  stroke="#82ca9d" 
+                  fill="#82ca9d" 
+                  fillOpacity={0.6}
+                  name="Orders"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="trends">Trends</TabsTrigger>
+        {/* Rush Hour Analysis */}
+        {rushHourData.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Rush Hour Analysis</CardTitle>
+              <CardDescription>
+                Order patterns throughout the day
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={rushHourData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="hour" />
+                  <YAxis />
+                  <Tooltip 
+                    formatter={(value: number, name: string) => [
+                      name === 'revenue' ? formatCurrency(value) : value.toLocaleString(),
+                      name === 'revenue' ? 'Revenue' : name === 'orders' ? 'Orders' : 'Avg Order Value'
+                    ]}
+                  />
+                  <Legend />
+                  <Bar dataKey="orders" fill="#8884d8" name="Orders" />
+                  <Bar dataKey="revenue" fill="#82ca9d" name="Revenue" />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Tabs for additional information */}
+        <Tabs defaultValue="products" className="w-full">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="products">Top Products</TabsTrigger>
-            <TabsTrigger value="reviews">Reviews</TabsTrigger>
+            <TabsTrigger value="feedback">Customer Feedback</TabsTrigger>
+            <TabsTrigger value="predictions">AI Predictions</TabsTrigger>
             <TabsTrigger value="promotions">Promotions</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="overview" className="space-y-4">
-            {/* Sales Chart */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Sales Overview</CardTitle>
-                <CardDescription>
-                  {reportPeriod.charAt(0).toUpperCase() + reportPeriod.slice(1)} sales performance
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="h-[400px]">
-                {currentData.length === 0 ? (
-                  <div className="flex items-center justify-center h-full">
-                    <div className="text-center">
-                      <div className="text-gray-400 mb-2">📊</div>
-                      <div className="text-gray-600">No sales data available for {reportPeriod} period</div>
-                      <Button 
-                        onClick={fetchSalesOverview} 
-                        variant="outline" 
-                        size="sm" 
-                        className="mt-3"
-                      >
-                        🔄 Refresh Data
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={currentData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#0f2b5b" stopOpacity={0.8} />
-                          <stop offset="95%" stopColor="#0f2b5b" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <XAxis dataKey={dataKey} />
-                      <YAxis />
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <Tooltip 
-                        formatter={(value: any) => [formatCurrency(value), 'Sales']}
-                      />
-                      <Legend />
-                      <Area
-                        type="monotone"
-                        dataKey="sales"
-                        stroke="#0f2b5b"
-                        fillOpacity={1}
-                        fill="url(#colorSales)"
-                        name="Sales"
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Orders Chart */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Orders Overview</CardTitle>
-                <CardDescription>Number of orders over time</CardDescription>
-              </CardHeader>
-              <CardContent className="h-[300px]">
-                {currentData.length === 0 ? (
-                  <div className="flex items-center justify-center h-full">
-                    <div className="text-center">
-                      <div className="text-gray-400 mb-2">📈</div>
-                      <div className="text-gray-600">No order data available</div>
-                    </div>
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={currentData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey={dataKey} />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="orders" fill="#8884d8" name="Orders" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="trends" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Sales Trends</CardTitle>
-                <CardDescription>Sales and orders trend analysis</CardDescription>
-              </CardHeader>
-              <CardContent className="h-[400px]">
-                {currentData.length === 0 ? (
-                  <div className="flex items-center justify-center h-full">
-                    <div className="text-center">
-                      <div className="text-gray-400 mb-2">📈</div>
-                      <div className="text-gray-600">No trend data available</div>
-                    </div>
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={currentData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey={dataKey} />
-                      <YAxis yAxisId="left" />
-                      <YAxis yAxisId="right" orientation="right" />
-                      <Tooltip 
-                        formatter={(value: any, name: string) => [
-                          name === 'Sales' ? formatCurrency(value) : value, 
-                          name
-                        ]}
-                      />
-                      <Legend />
-                      <Line
-                        yAxisId="left"
-                        type="monotone"
-                        dataKey="sales"
-                        stroke="#8884d8"
-                        strokeWidth={2}
-                        name="Sales"
-                      />
-                      <Line
-                        yAxisId="right"
-                        type="monotone"
-                        dataKey="orders"
-                        stroke="#82ca9d"
-                        strokeWidth={2}
-                        name="Orders"
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
+          {/* Top Products Tab */}
           <TabsContent value="products" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Top Products</CardTitle>
-                <CardDescription>Best performing products by sales</CardDescription>
+                <CardTitle>Top Performing Products</CardTitle>
+                <CardDescription>Best selling menu items with comprehensive analytics</CardDescription>
               </CardHeader>
               <CardContent>
-                {topProducts.length === 0 ? (
-                  <div className="text-center py-8">
-                    <div className="text-gray-400 mb-2">🍽️</div>
-                    <div className="text-gray-600">No product data available</div>
-                    <Button 
-                      onClick={fetchTopProducts} 
-                      variant="outline" 
-                      size="sm" 
-                      className="mt-3"
-                    >
-                      🔄 Load Products
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {topProducts.map((product, index) => (
-                      <div key={product.id_menu} className="flex items-center justify-between p-4 border rounded-lg">
-                        <div className="flex items-center space-x-4">
-                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                            <span className="text-sm font-semibold text-blue-600">#{index + 1}</span>
+                <div className="space-y-4">
+                  {topProducts.length > 0 ? (
+                    <div className="grid gap-4">
+                      {topProducts.slice(0, 10).map((product, index) => (
+                        <div key={product.id_menu} className="flex items-center space-x-4 p-4 border rounded-lg hover:bg-gray-50">
+                          <div className="flex-shrink-0">
+                            <Badge variant={index < 3 ? "default" : "secondary"}>
+                              #{index + 1}
+                            </Badge>
                           </div>
-                          <div>
-                            <h3 className="font-semibold">{product.nama_menu}</h3>
-                            <p className="text-sm text-gray-500">
-                              {product.total_quantity} sold • {formatCurrency(product.avg_price)} avg price
-                            </p>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center space-x-2">
+                              <p className="text-sm font-medium truncate">{product.nama_menu}</p>
+                              <Badge variant="outline" className="text-xs">
+                                {product.category}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center space-x-4 mt-1">
+                              <p className="text-sm text-gray-500">
+                                {product.total_quantity} sold
+                              </p>
+                              <p className="text-sm text-gray-500">
+                                Avg: {formatCurrency(product.avg_price)}
+                              </p>
+                              {product.growth_rate && (
+                                <p className="text-sm text-green-600">
+                                  {formatPercentage(product.growth_rate)} growth
+                                </p>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="font-semibold">{formatCurrency(product.total_revenue)}</div>
-                          <div className="text-sm text-gray-500">{product.total_sales} sales</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Top Menu Predictions */}
-                {topMenuPrediction && (
-                  <div className="mt-6">
-                    <h3 className="font-semibold mb-4 flex items-center gap-2">
-                      <Sparkles className="h-4 w-4" />
-                      AI Predicted Top Menu Items
-                    </h3>
-                    <div className="space-y-3">
-                      {topMenuPrediction.map((item: any, index: number) => (
-                        <div key={index} className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
-                          <div>
-                            <span className="font-medium">{item.menu_name}</span>
-                            <p className="text-sm text-gray-600">{item.reasoning}</p>
+                          <div className="flex-shrink-0 text-right">
+                            <div className="text-sm font-medium">
+                              {formatCurrency(product.total_revenue)}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {product.total_sales} orders
+                            </div>
                           </div>
-                          <Badge variant="outline" className="bg-blue-100">
-                            {item.confidence}% likely
-                          </Badge>
                         </div>
                       ))}
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      No product data available
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
+
+            {/* Product Performance Chart */}
+            {topProducts.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Product Performance Distribution</CardTitle>
+                  <CardDescription>Revenue distribution among top products</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <PieChart>
+                      <Pie
+                        data={topProducts.slice(0, 5).map((product, index) => ({
+                          name: product.nama_menu,
+                          value: product.total_revenue,
+                          fill: COLORS[index % COLORS.length]
+                        }))}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {topProducts.slice(0, 5).map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value: any) => [formatCurrency(Number(value)), 'Revenue']} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
-          <TabsContent value="reviews" className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-x-2">
-                <Select value={ratingFilter} onValueChange={setRatingFilter}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Filter by rating" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Ratings</SelectItem>
-                    <SelectItem value="5">5 Stars</SelectItem>
-                    <SelectItem value="4">4 Stars</SelectItem>
-                    <SelectItem value="3">3 Stars</SelectItem>
-                    <SelectItem value="2">2 Stars</SelectItem>
-                    <SelectItem value="1">1 Star</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={timeFilter} onValueChange={setTimeFilter}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Sort by" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="latest">Latest First</SelectItem>
-                    <SelectItem value="oldest">Oldest First</SelectItem>
-                    <SelectItem value="highest">Highest Rating</SelectItem>
-                    <SelectItem value="lowest">Lowest Rating</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-                {feedbackSummary ? (
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium">Total Reviews</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="text-2xl font-bold">{feedbackSummary.total_feedback || 0}</div>
-                        <p className="text-xs text-muted-foreground">Customer reviews</p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium">Average Rating</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="text-2xl font-bold flex items-center">
-                          {safeToFixed(feedbackSummary.avg_rating)}
-                          <Star className="ml-1 h-4 w-4 fill-yellow-400 text-yellow-400" />
-                        </div>
-                        <p className="text-xs text-muted-foreground">Out of 5 stars</p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium">5-Star Reviews</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="text-2xl font-bold">{feedbackSummary.five_star || 0}</div>
-                        <p className="text-xs text-muted-foreground">
-                          {safeToFixed(((feedbackSummary.five_star || 0) / (feedbackSummary.total_feedback || 1)) * 100)}% of total
-                        </p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium">Recent Reviews</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="text-2xl font-bold">{feedbackSummary.recent_feedback || 0}</div>
-                        <p className="text-xs text-muted-foreground">Last 7 days</p>
-                      </CardContent>
-                    </Card>
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <div className="text-gray-400 mb-2">⭐</div>
-                    <div className="text-gray-600">No feedback summary available</div>
-                  </div>
-                )}
-
-            {/* Feedback List */}
+          {/* Customer Feedback Tab */}
+          <TabsContent value="feedback" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Customer Reviews</CardTitle>
-                <CardDescription>Recent customer feedback and ratings</CardDescription>
+                <CardTitle>Customer Feedback</CardTitle>
+                <CardDescription>Latest customer reviews and ratings analysis</CardDescription>
               </CardHeader>
               <CardContent>
-                {feedback.length === 0 ? (
-                  <div className="text-center py-8">
-                    <div className="text-gray-400 mb-2">💬</div>
-                    <div className="text-gray-600">No reviews available</div>
-                    <Button 
-                      onClick={fetchFeedback} 
-                      variant="outline" 
-                      size="sm" 
-                      className="mt-3"
-                    >
-                      🔄 Refresh Reviews
-                    </Button>
+                <div className="space-y-4">
+                  {/* Rating Filter */}
+                  <div className="flex space-x-2">
+                    <Select value={ratingFilter} onValueChange={setRatingFilter}>
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Filter by rating" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Ratings</SelectItem>
+                        <SelectItem value="5">5 Stars</SelectItem>
+                        <SelectItem value="4">4 Stars</SelectItem>
+                        <SelectItem value="3">3 Stars</SelectItem>
+                        <SelectItem value="2">2 Stars</SelectItem>
+                        <SelectItem value="1">1 Star</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={timeFilter} onValueChange={setTimeFilter}>
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Sort by" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="latest">Latest First</SelectItem>
+                        <SelectItem value="oldest">Oldest First</SelectItem>
+                        <SelectItem value="highest">Highest Rating</SelectItem>
+                        <SelectItem value="lowest">Lowest Rating</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
-                ) : (
+
+                  {/* Feedback Summary */}
+                  {feedbackSummary && (
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+                      <Card>
+                        <CardContent className="pt-4">
+                          <div className="text-2xl font-bold text-yellow-600">
+                            {safeToFixed(feedbackSummary.avg_rating, 1)}
+                          </div>
+                          <div className="text-sm text-gray-500">Average Rating</div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <div className="text-2xl font-bold">{feedbackSummary.total_feedback}</div>
+                          <div className="text-sm text-gray-500">Total Reviews</div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <div className="text-2xl font-bold text-green-600">
+                            {feedbackSummary.five_star}
+                          </div>
+                          <div className="text-sm text-gray-500">5 Star Reviews</div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <div className="text-2xl font-bold text-blue-600">
+                            {feedbackSummary.recent_feedback}
+                          </div>
+                          <div className="text-sm text-gray-500">Recent Reviews</div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <div className="text-2xl font-bold text-orange-600">
+                            {feedbackSummary.pending_feedback}
+                          </div>
+                          <div className="text-sm text-gray-500">Pending Reviews</div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+
+                  {/* Rating Distribution */}
+                  {feedbackSummary && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Rating Distribution</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          {[5, 4, 3, 2, 1].map((rating) => {
+                            const count = feedbackSummary[`${rating === 1 ? 'one' : rating === 2 ? 'two' : rating === 3 ? 'three' : rating === 4 ? 'four' : 'five'}_star` as keyof FeedbackSummary] as number || 0;
+                            const percentage = feedbackSummary.total_feedback > 0 ? (count / feedbackSummary.total_feedback) * 100 : 0;
+                            
+                            return (
+                              <div key={rating} className="flex items-center space-x-2">
+                                <div className="flex items-center space-x-1 w-16">
+                                  <span className="text-sm">{rating}</span>
+                                  <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                                </div>
+                                <div className="flex-1 bg-gray-200 rounded-full h-2">
+                                  <div 
+                                    className="bg-yellow-400 h-2 rounded-full transition-all duration-300"
+                                    style={{ width: `${percentage}%` }}
+                                  />
+                                </div>
+                                <div className="text-sm text-gray-500 w-12">
+                                  {count}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Feedback List */}
                   <div className="space-y-4">
-                    {feedback.map((review) => (
-                      <div key={review.id_feedback} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center space-x-2">
-                            <span className="font-medium">{review.customer_name}</span>
-                            <div className="flex">
-                              {[...Array(5)].map((_, i) => (
+                    {feedback.length > 0 ? (
+                      feedback.map((fb) => (
+                        <div key={fb.id_feedback} className="border rounded-lg p-4 hover:bg-gray-50">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center space-x-2">
+                              <span className="font-medium">{fb.customer_name}</span>
+                              <Badge variant="outline">{fb.restaurant_name}</Badge>
+                              <Badge 
+                                variant={fb.status === 'approved' ? 'default' : 'secondary'}
+                                className="text-xs"
+                              >
+                                {fb.status}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                              {Array.from({ length: 5 }, (_, i) => (
                                 <Star
                                   key={i}
                                   className={`h-4 w-4 ${
-                                    i < review.rating
-                                      ? 'fill-yellow-400 text-yellow-400'
-                                      : 'text-gray-300'
+                                    i < fb.rating ? 'text-yellow-400 fill-current' : 'text-gray-300'
                                   }`}
                                 />
                               ))}
                             </div>
                           </div>
-                          <span className="text-sm text-gray-500">
-                            {new Date(review.feedback_date).toLocaleDateString()}
-                          </span>
+                          <p className="text-sm text-gray-600 mb-2">{fb.comment}</p>
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs text-gray-400">
+                              {new Date(fb.feedback_date).toLocaleDateString('id-ID', {
+                                year: 'numeric',
+                                month: 'long',
+                                day: 'numeric'
+                              })}
+                            </p>
+                            {fb.sentiment_score && (
+                              <Badge 
+                                variant={fb.sentiment_score > 0.5 ? 'default' : fb.sentiment_score > 0 ? 'secondary' : 'destructive'}
+                                className="text-xs"
+                              >
+                                {fb.sentiment_score > 0.5 ? 'Positive' : fb.sentiment_score > 0 ? 'Neutral' : 'Negative'}
+                              </Badge>
+                            )}
+                          </div>
                         </div>
-                        <p className="text-gray-700">{review.comment}</p>
-                        <div className="mt-2 text-xs text-gray-500">
-                          {review.restaurant_name}
-                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-8 text-gray-500">
+                        No feedback available for the selected filters
                       </div>
-                    ))}
+                    )}
                   </div>
-                )}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
 
-          <TabsContent value="promotions" className="space-y-4">
-            {/* Promo Generation */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Sparkles className="h-5 w-5" />
-                  AI Promotion Recommendations
-                </CardTitle>
-                <CardDescription>
-                  Generate personalized promotion strategies based on sales data and customer behavior
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button
-                  onClick={generatePromoRecommendations}
-                  disabled={isGeneratingPromos}
-                  className="mb-4"
-                >
-                  {isGeneratingPromos ? "Generating..." : "Generate AI Recommendations"}
-                </Button>
-
-                {promoError && (
-                  <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                    <p className="text-red-700 text-sm">{promoError}</p>
-                  </div>
-                )}
-
-                {applySuccess && (
-                  <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                    <p className="text-green-700 text-sm">{applySuccess}</p>
-                  </div>
-                )}
-
-                {promoRecommendations && (
+          {/* AI Predictions Tab */}
+          <TabsContent value="predictions" className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              {/* Sales Predictions */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Sparkles className="h-5 w-5" />
+                    <span>Sales Predictions</span>
+                  </CardTitle>
+                  <CardDescription>AI-powered sales forecasting based on historical data</CardDescription>
+                </CardHeader>
+                <CardContent>
                   <div className="space-y-4">
-                    <h3 className="font-semibold">Recommended Promotions</h3>
-                    {promoRecommendations.map((promo, index) => (
-                      <div key={index} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <h4 className="font-semibold">{promo.type}</h4>
-                          <Button
-                            onClick={() => applyPromotion(promo)}
-                            disabled={isApplyingPromo === promo.type}
-                            size="sm"
-                          >
-                            {isApplyingPromo === promo.type ? "Applying..." : "Apply"}
-                          </Button>
-                        </div>
-                        <p className="text-gray-700 mb-2">{promo.description}</p>
-                        <p className="text-sm text-gray-600 mb-2">{promo.reasoning}</p>
-                        <Badge variant="outline">{promo.estimatedImpact}</Badge>
-                        {promo.details && (
-                          <p className="text-xs text-gray-500 mt-2">{promo.details}</p>
-                        )}
+                    <Button 
+                      onClick={generatePredictions} 
+                      disabled={isGeneratingPrediction}
+                      className="w-full"
+                    >
+                      {isGeneratingPrediction ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Generating Predictions...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="mr-2 h-4 w-4" />
+                          Generate Sales Predictions
+                        </>
+                      )}
+                    </Button>
+
+                    {predictionError && (
+                      <div className="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+                        <AlertTriangle className="h-4 w-4 inline mr-2" />
+                        {predictionError}
                       </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                    )}
 
-            {/* Applied Promotions */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Active Promotions</CardTitle>
-                <CardDescription>Currently running promotional campaigns</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {appliedPromotions.length === 0 ? (
-                  <div className="text-center py-8">
-                    <div className="text-gray-400 mb-2">🎯</div>
-                    <div className="text-gray-600">No active promotions</div>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {appliedPromotions.map((promo) => (
-                      <div key={promo.id} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-semibold">{promo.type}</h4>
-                            <Badge 
-                              variant={promo.status === 'active' ? 'default' : promo.status === 'paused' ? 'secondary' : 'outline'}
-                            >
-                              {promo.status}
-                            </Badge>
+                    {predictions && (
+                      <div className="space-y-3">
+                        {predictions.nextDay && (
+                          <div className="p-3 bg-blue-50 border border-blue-200 rounded">
+                            <div className="flex justify-between items-center">
+                              <span className="font-medium">Next Day Prediction</span>
+                              <Badge variant="outline">{predictions.nextDay.confidence}% confidence</Badge>
+                            </div>
+                            <div className="text-lg font-semibold text-blue-700">
+                              {formatCurrency(predictions.nextDay.sales)}
+                            </div>
+                            <div className="text-xs text-blue-600 mt-1">
+                              Based on recent daily trends
+                            </div>
                           </div>
-                          <div className="flex gap-2">
-                            {promo.status === 'active' ? (
-                              <Button
-                                onClick={() => togglePromotionStatus(promo.id, 'paused')}
-                                size="sm"
-                                variant="outline"
-                              >
-                                <Pause className="h-4 w-4" />
-                              </Button>
-                            ) : promo.status === 'paused' ? (
-                              <Button
-                                onClick={() => togglePromotionStatus(promo.id, 'active')}
-                                size="sm"
-                                variant="outline"
-                              >
-                                <Play className="h-4 w-4" />
-                              </Button>
-                            ) : null}
-                            <Button
-                              onClick={() => togglePromotionStatus(promo.id, 'completed')}
-                              size="sm"
-                              variant="outline"
-                            >
-                              <CheckCircle className="h-4 w-4" />
-                            </Button>
+                        )}
+
+                        {predictions.nextMonth && (
+                          <div className="p-3 bg-green-50 border border-green-200 rounded">
+                            <div className="flex justify-between items-center">
+                              <span className="font-medium">Next Month Prediction</span>
+                              <Badge variant="outline">{predictions.nextMonth.confidence}% confidence</Badge>
+                            </div>
+                            <div className="text-lg font-semibold text-green-700">
+                              {formatCurrency(predictions.nextMonth.sales)}
+                            </div>
+                            <div className="text-xs text-green-600 mt-1">
+                              Based on monthly patterns
+                            </div>
                           </div>
-                        </div>
-                        <p className="text-gray-700 mb-2">{promo.description}</p>
-                        <div className="flex items-center gap-4 text-sm text-gray-600">
-                          <span>Applied: {new Date(promo.appliedAt).toLocaleDateString()}</span>
-                          <span>Start: {new Date(promo.startDate).toLocaleDateString()}</span>
-                          {promo.endDate && (
-                            <span>End: {new Date(promo.endDate).toLocaleDateString()}</span>
-                          )}
-                        </div>
-                        {promo.performance && (
-                          <div className="mt-3 p-3 bg-gray-50 rounded-lg">
-                            <div className="grid grid-cols-3 gap-4 text-sm">
-                              <div>
-                                <span className="text-gray-600">Orders:</span>
-                                <span className="ml-1 font-medium">{promo.performance.orders}</span>
-                              </div>
-                              <div>
-                                <span className="text-gray-600">Revenue:</span>
-                                <span className="ml-1 font-medium">{formatCurrency(promo.performance.revenue)}</span>
-                              </div>
-                              <div>
-                                <span className="text-gray-600">Conversion:</span>
-                                <span className="ml-1 font-medium">{promo.performance.conversionRate}%</span>
-                              </div>
+                        )}
+
+                        {predictions.nextYear && (
+                          <div className="p-3 bg-purple-50 border border-purple-200 rounded">
+                            <div className="flex justify-between items-center">
+                              <span className="font-medium">Next Year Prediction</span>
+                              <Badge variant="outline">{predictions.nextYear.confidence}% confidence</Badge>
+                            </div>
+                            <div className="text-lg font-semibold text-purple-700">
+                              {formatCurrency(predictions.nextYear.sales)}
+                            </div>
+                            <div className="text-xs text-purple-600 mt-1">
+                              Based on yearly trends and seasonality
                             </div>
                           </div>
                         )}
                       </div>
-                    ))}
+                    )}
                   </div>
-                )}
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+
+              {/* Top Menu Predictions */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <TrendingUp className="h-5 w-5" />
+                    <span>Top Menu Predictions</span>
+                  </CardTitle>
+                  <CardDescription>Predict next trending menu items with AI analysis</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <Button 
+                      onClick={generateTopMenuPredictions} 
+                      disabled={isPredictingTopMenu}
+                      className="w-full"
+                    >
+                      {isPredictingTopMenu ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Analyzing Menu Trends...
+                        </>
+                      ) : (
+                        <>
+                          <TrendingUp className="mr-2 h-4 w-4" />
+                          Predict Top Menu Items
+                        </>
+                      )}
+                    </Button>
+
+                    {topMenuPrediction && (
+                      <div className="space-y-3">
+                        {topMenuPrediction.map((item: TopMenuPrediction, index: number) => (
+                          <div key={index} className="p-3 border rounded-lg">
+                            <div className="flex justify-between items-start mb-2">
+                              <span className="font-medium">{item.menu_name}</span>
+                              <div className="flex items-center space-x-2">
+                                <Badge 
+                                  variant={item.trend === 'rising' ? 'default' : item.trend === 'declining' ? 'destructive' : 'secondary'}
+                                >
+                                  {item.trend}
+                                </Badge>
+                                <Badge variant="outline">
+                                  {item.confidence}%
+                                </Badge>
+                              </div>
+                            </div>
+                            <div className="text-sm text-gray-600 mb-2">
+                              Predicted Sales: {formatCurrency(item.predicted_sales)}
+                            </div>
+                            <div className="text-xs text-gray-500 mb-2">
+                              {item.reasoning}
+                            </div>
+                            <div className="text-xs text-blue-600 font-medium">
+                              💡 {item.recommendation}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          {/* Promotions Tab */}
+          <TabsContent value="promotions" className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              {/* Generate Promotions */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Sparkles className="h-5 w-5" />
+                    <span>AI Promotion Ideas</span>
+                  </CardTitle>
+                  <CardDescription>Generate smart promotion recommendations based on sales data</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <Button 
+                      onClick={generatePromoRecommendations} 
+                      disabled={isGeneratingPromos}
+                      className="w-full"
+                    >
+                      {isGeneratingPromos ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Generating Ideas...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="mr-2 h-4 w-4" />
+                          Generate Promotion Ideas
+                        </>
+                      )}
+                    </Button>
+
+                    {promoError && (
+                      <div className="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+                        <AlertTriangle className="h-4 w-4 inline mr-2" />
+                        {promoError}
+                      </div>
+                    )}
+
+                    {applySuccess && (
+                      <div className="p-3 bg-green-50 border border-green-200 rounded text-green-700 text-sm">
+                        <CheckCircle className="h-4 w-4 inline mr-2" />
+                        {applySuccess}
+                      </div>
+                    )}
+
+                    {promoRecommendations && (
+                      <div className="space-y-3">
+                        {promoRecommendations.map((promo: Promotion, index: number) => (
+                          <div key={index} className="p-3 border rounded-lg">
+                            <div className="flex justify-between items-start mb-2">
+                              <span className="font-medium">{promo.type}</span>
+                              <Badge variant="outline">{promo.estimatedImpact}</Badge>
+                            </div>
+                            <p className="text-sm text-gray-600 mb-2">{promo.description}</p>
+                            <p className="text-xs text-gray-500 mb-3">
+                              💡 {promo.reasoning}
+                            </p>
+                            {promo.details && (
+                              <p className="text-xs text-blue-600 mb-3">
+                                ℹ️ {promo.details}
+                              </p>
+                            )}
+                            <Button 
+                              onClick={() => applyPromotion(promo)}
+                              disabled={isApplyingPromo === promo.type}
+                              size="sm"
+                              className="w-full"
+                            >
+                              {isApplyingPromo === promo.type ? (
+                                <>
+                                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-2"></div>
+                                  Applying...
+                                </>
+                              ) : (
+                                'Apply Promotion'
+                              )}
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Applied Promotions */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <CheckCircle className="h-5 w-5" />
+                    <span>Active Promotions</span>
+                  </CardTitle>
+                  <CardDescription>Currently running promotions and their performance</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {appliedPromotions.length > 0 ? (
+                      appliedPromotions.map((promo: AppliedPromotion) => (
+                        <div key={promo.id} className="p-3 border rounded-lg">
+                          <div className="flex justify-between items-start mb-2">
+                            <span className="font-medium">{promo.type}</span>
+                            <div className="flex items-center space-x-2">
+                              <Badge 
+                                variant={promo.status === 'active' ? 'default' : promo.status === 'paused' ? 'secondary' : 'outline'}
+                              >
+                                {promo.status}
+                              </Badge>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => togglePromotionStatus(
+                                  promo.id, 
+                                  promo.status === 'active' ? 'paused' : 'active'
+                                )}
+                                className="h-6 w-6 p-0"
+                              >
+                                {promo.status === 'active' ? 
+                                  <Pause className="h-3 w-3" /> : 
+                                  <Play className="h-3 w-3" />
+                                }
+                              </Button>
+                            </div>
+                          </div>
+                          <p className="text-sm text-gray-600 mb-2">{promo.description}</p>
+                          <div className="text-xs text-gray-500 space-y-1">
+                            <div className="flex justify-between">
+                              <span>Applied:</span>
+                              <span>{new Date(promo.appliedAt).toLocaleDateString()}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Start Date:</span>
+                              <span>{new Date(promo.startDate).toLocaleDateString()}</span>
+                            </div>
+                            {promo.endDate && (
+                              <div className="flex justify-between">
+                                <span>End Date:</span>
+                                <span>{new Date(promo.endDate).toLocaleDateString()}</span>
+                              </div>
+                            )}
+                            {promo.performance && (
+                              <div className="mt-2 p-2 bg-gray-50 rounded text-xs">
+                                <div className="font-medium mb-1">Performance:</div>
+                                <div className="flex justify-between">
+                                  <span>Orders:</span>
+                                  <span>{promo.performance.orders}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>Revenue:</span>
+                                  <span>{formatCurrency(promo.performance.revenue)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>Conversion:</span>
+                                  <span>{promo.performance.conversionRate}%</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-8 text-gray-500">
+                        <CheckCircle className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                        <p>No active promotions</p>
+                        <p className="text-sm">Generate new promotion ideas to get started</p>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
         </Tabs>
       </div>

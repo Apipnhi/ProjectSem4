@@ -1,348 +1,273 @@
 // app/api/dashboard/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/lib/db';
+import { NextRequest, NextResponse } from 'next/server'
+import { query } from '@/lib/db'
 
-// Interface untuk data dashboard
-interface DashboardStats {
-  totalSales: number;
-  totalOrders: number;
-  totalCustomers: number;
-  avgOrderValue: number;
-  salesGrowth: number;
-  ordersGrowth: number;
-  customersGrowth: number;
-  avgOrderGrowth: number;
-}
-
-interface SalesData {
+// Define interfaces for type safety
+interface DatabaseSalesData {
   date: string;
-  sales: number;
-  orders: number;
+  sales: string | number;
+  orders: string | number;
 }
 
-interface TopProduct {
+interface DatabaseStats {
+  current_sales: string | number;
+  current_orders: string | number;
+  current_customers: string | number;
+  prev_sales: string | number;
+  prev_orders: string | number;
+  prev_customers: string | number;
+  current_avg_order: string | number;
+  prev_avg_order: string | number;
+}
+
+interface DatabaseTopProduct {
   name: string;
-  sales: number;
-  quantity: number;
-  revenue: number;
+  sales: string | number;
+  quantity: string | number;
+  revenue: string | number;
 }
 
-interface RecentOrder {
+interface DatabaseRecentOrder {
   id: number;
   date: string;
-  total: number;
+  total: string | number;
   status: string;
 }
 
-interface StockAlert {
+interface DatabaseStockAlert {
   id: number;
   name: string;
-  quantity: number;
+  quantity: string | number;
   status: string;
-  daysUntilExpiry: number;
+  daysUntilExpiry: string | number;
 }
 
-// Fungsi untuk mendapatkan statistik utama
-async function getDashboardStats(): Promise<DashboardStats> {
+export async function GET(request: NextRequest) {
   try {
-    // Query untuk mendapatkan data bulan ini
-    const currentMonthSql = `
+    const { searchParams } = new URL(request.url)
+    const restaurantId = searchParams.get('restaurant_id') || '1'
+    
+    console.log('📊 Fetching dashboard data for restaurant:', restaurantId)
+
+    // Get current date ranges for calculations
+    const currentDate = new Date()
+    const thirtyDaysAgo = new Date(currentDate)
+    thirtyDaysAgo.setDate(currentDate.getDate() - 30)
+    const sixtyDaysAgo = new Date(currentDate)
+    sixtyDaysAgo.setDate(currentDate.getDate() - 60)
+
+    const currentDateStr = currentDate.toISOString().split('T')[0]
+    const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0]
+    const sixtyDaysAgoStr = sixtyDaysAgo.toISOString().split('T')[0]
+
+    // Get main statistics
+    const statsSQL = `
       SELECT 
-        COALESCE(SUM(c.Harga_Total), 0) as totalSales,
-        COUNT(c.Invoice_Id) as totalOrders,
-        COUNT(DISTINCT c.Invoice_Id) as totalCustomers,
-        COALESCE(AVG(c.Harga_Total), 0) as avgOrderValue
+        -- Current period (last 30 days)
+        COALESCE(SUM(CASE WHEN c.Tanggal_Order >= ? THEN c.Harga_Total END), 0) as current_sales,
+        COALESCE(COUNT(CASE WHEN c.Tanggal_Order >= ? THEN c.Invoice_Id END), 0) as current_orders,
+        COALESCE(COUNT(DISTINCT CASE WHEN c.Tanggal_Order >= ? THEN c.Invoice_Id END), 0) as current_customers,
+        
+        -- Previous period (30-60 days ago)
+        COALESCE(SUM(CASE WHEN c.Tanggal_Order >= ? AND c.Tanggal_Order < ? THEN c.Harga_Total END), 0) as prev_sales,
+        COALESCE(COUNT(CASE WHEN c.Tanggal_Order >= ? AND c.Tanggal_Order < ? THEN c.Invoice_Id END), 0) as prev_orders,
+        COALESCE(COUNT(DISTINCT CASE WHEN c.Tanggal_Order >= ? AND c.Tanggal_Order < ? THEN c.Invoice_Id END), 0) as prev_customers,
+        
+        -- Average order value
+        CASE 
+          WHEN COUNT(CASE WHEN c.Tanggal_Order >= ? THEN c.Invoice_Id END) > 0 
+          THEN SUM(CASE WHEN c.Tanggal_Order >= ? THEN c.Harga_Total END) / COUNT(CASE WHEN c.Tanggal_Order >= ? THEN c.Invoice_Id END)
+          ELSE 0 
+        END as current_avg_order,
+        
+        CASE 
+          WHEN COUNT(CASE WHEN c.Tanggal_Order >= ? AND c.Tanggal_Order < ? THEN c.Invoice_Id END) > 0 
+          THEN SUM(CASE WHEN c.Tanggal_Order >= ? AND c.Tanggal_Order < ? THEN c.Harga_Total END) / COUNT(CASE WHEN c.Tanggal_Order >= ? AND c.Tanggal_Order < ? THEN c.Invoice_Id END)
+          ELSE 0 
+        END as prev_avg_order
+
       FROM Customer c
-      WHERE MONTH(c.Tanggal_Order) = MONTH(CURDATE()) 
-        AND YEAR(c.Tanggal_Order) = YEAR(CURDATE())
-    `;
+      WHERE c.id_restaurant = ?
+    `
 
-    // Query untuk mendapatkan data bulan lalu
-    const previousMonthSql = `
-      SELECT 
-        COALESCE(SUM(c.Harga_Total), 0) as totalSales,
-        COUNT(c.Invoice_Id) as totalOrders,
-        COUNT(DISTINCT c.Invoice_Id) as totalCustomers,
-        COALESCE(AVG(c.Harga_Total), 0) as avgOrderValue
-      FROM Customer c
-      WHERE MONTH(c.Tanggal_Order) = MONTH(CURDATE() - INTERVAL 1 MONTH)
-        AND YEAR(c.Tanggal_Order) = YEAR(CURDATE() - INTERVAL 1 MONTH)
-    `;
+    const [stats] = await query(statsSQL, [
+      thirtyDaysAgoStr, thirtyDaysAgoStr, thirtyDaysAgoStr,
+      sixtyDaysAgoStr, thirtyDaysAgoStr, sixtyDaysAgoStr, thirtyDaysAgoStr, sixtyDaysAgoStr, thirtyDaysAgoStr,
+      thirtyDaysAgoStr, thirtyDaysAgoStr, thirtyDaysAgoStr,
+      sixtyDaysAgoStr, thirtyDaysAgoStr, sixtyDaysAgoStr, thirtyDaysAgoStr, sixtyDaysAgoStr, thirtyDaysAgoStr,
+      restaurantId
+    ]) as DatabaseStats[]
 
-    const [currentMonth, previousMonth] = await Promise.all([
-      query(currentMonthSql),
-      query(previousMonthSql)
-    ]);
+    // Calculate growth rates
+    const currentSales = Number(stats.current_sales)
+    const prevSales = Number(stats.prev_sales)
+    const currentOrders = Number(stats.current_orders)
+    const prevOrders = Number(stats.prev_orders)
+    const currentCustomers = Number(stats.current_customers)
+    const prevCustomers = Number(stats.prev_customers)
+    const currentAvgOrder = Number(stats.current_avg_order)
+    const prevAvgOrder = Number(stats.prev_avg_order)
 
-    const current = currentMonth[0] || { totalSales: 0, totalOrders: 0, totalCustomers: 0, avgOrderValue: 0 };
-    const previous = previousMonth[0] || { totalSales: 0, totalOrders: 0, totalCustomers: 0, avgOrderValue: 0 };
+    const salesGrowth = prevSales > 0 ? ((currentSales - prevSales) / prevSales * 100) : 0
+    const ordersGrowth = prevOrders > 0 ? ((currentOrders - prevOrders) / prevOrders * 100) : 0
+    const customersGrowth = prevCustomers > 0 ? ((currentCustomers - prevCustomers) / prevCustomers * 100) : 0
+    const avgOrderGrowth = prevAvgOrder > 0 ? ((currentAvgOrder - prevAvgOrder) / prevAvgOrder * 100) : 0
 
-    // Hitung persentase pertumbuhan
-    const salesGrowth = previous.totalSales > 0 ? 
-      ((current.totalSales - previous.totalSales) / previous.totalSales) * 100 : 0;
-    
-    const ordersGrowth = previous.totalOrders > 0 ? 
-      ((current.totalOrders - previous.totalOrders) / previous.totalOrders) * 100 : 0;
-    
-    const customersGrowth = previous.totalCustomers > 0 ? 
-      ((current.totalCustomers - previous.totalCustomers) / previous.totalCustomers) * 100 : 0;
-    
-    const avgOrderGrowth = previous.avgOrderValue > 0 ? 
-      ((current.avgOrderValue - previous.avgOrderValue) / previous.avgOrderValue) * 100 : 0;
-
-    return {
-      totalSales: Number(current.totalSales),
-      totalOrders: Number(current.totalOrders),
-      totalCustomers: Number(current.totalCustomers),
-      avgOrderValue: Number(current.avgOrderValue),
-      salesGrowth: Number(salesGrowth.toFixed(1)),
-      ordersGrowth: Number(ordersGrowth.toFixed(1)),
-      customersGrowth: Number(customersGrowth.toFixed(1)),
-      avgOrderGrowth: Number(avgOrderGrowth.toFixed(1))
-    };
-  } catch (error) {
-    console.error('Error getting dashboard stats:', error);
-    throw error;
-  }
-}
-
-// Fungsi untuk mendapatkan data penjualan 7 hari terakhir
-async function getRecentSalesData(): Promise<SalesData[]> {
-  try {
-    const sql = `
+    // Get sales data for chart (last 7 days)
+    const salesDataSQL = `
       SELECT 
         DATE(c.Tanggal_Order) as date,
         SUM(c.Harga_Total) as sales,
         COUNT(c.Invoice_Id) as orders
       FROM Customer c
-      WHERE c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+      WHERE c.id_restaurant = ? 
+        AND c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
       GROUP BY DATE(c.Tanggal_Order)
-      ORDER BY date ASC
-    `;
+      ORDER BY DATE(c.Tanggal_Order)
+    `
 
-    const results = await query(sql);
-    
-    return results.map((row: any) => ({
-      date: row.date,
-      sales: Number(row.sales),
-      orders: Number(row.orders)
-    }));
-  } catch (error) {
-    console.error('Error getting recent sales data:', error);
-    throw error;
-  }
-}
+    const salesData = await query(salesDataSQL, [restaurantId]) as DatabaseSalesData[]
 
-// Fungsi untuk mendapatkan produk terlaris
-async function getTopProducts(): Promise<TopProduct[]> {
-  try {
-    const sql = `
+    // Get top products
+    const topProductsSQL = `
       SELECT 
         m.Nama_Menu as name,
-        COUNT(mm.id_customer) as sales,
-        COALESCE(SUM(mm.kuantitas), 0) as quantity,
-        COALESCE(SUM(mm.kuantitas * m.Harga), 0) as revenue
-      FROM menu m
-      LEFT JOIN MEMESAN_MENU mm ON m.Id_Menu = mm.id_menu
-      LEFT JOIN Customer c ON mm.id_customer = c.Invoice_Id
-      WHERE c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+        COUNT(DISTINCT c.Invoice_Id) as sales,
+        SUM(mm.kuantitas) as quantity,
+        SUM(mm.kuantitas * m.Harga) as revenue
+      FROM MEMESAN_MENU mm
+      JOIN menu m ON mm.id_menu = m.Id_Menu
+      JOIN Customer c ON mm.id_customer = c.Invoice_Id
+      WHERE c.id_restaurant = ? 
+        AND c.Tanggal_Order >= ?
       GROUP BY m.Id_Menu, m.Nama_Menu
-      HAVING quantity > 0
+      
+      UNION ALL
+      
+      SELECT 
+        m.Nama_Menu as name,
+        COUNT(DISTINCT c.Invoice_Id) as sales,
+        SUM(mp.kuantitas) as quantity,
+        SUM(mp.kuantitas * m.Harga) as revenue
+      FROM MEMESAN_PAKET mp
+      JOIN menu m ON mp.id_menu = m.Id_Menu
+      JOIN Customer c ON mp.Id_customer = c.Invoice_Id
+      WHERE c.id_restaurant = ? 
+        AND c.Tanggal_Order >= ?
+      GROUP BY m.Id_Menu, m.Nama_Menu
+      
       ORDER BY revenue DESC
       LIMIT 5
-    `;
+    `
 
-    const results = await query(sql);
-    
-    return results.map((row: any) => ({
-      name: row.name,
-      sales: Number(row.sales),
-      quantity: Number(row.quantity),
-      revenue: Number(row.revenue)
-    }));
-  } catch (error) {
-    console.error('Error getting top products:', error);
-    throw error;
-  }
-}
+    const topProducts = await query(topProductsSQL, [restaurantId, thirtyDaysAgoStr, restaurantId, thirtyDaysAgoStr]) as DatabaseTopProduct[]
 
-// Fungsi untuk mendapatkan pesanan terbaru
-async function getRecentOrders(): Promise<RecentOrder[]> {
-  try {
-    const sql = `
+    // Get recent orders
+    const recentOrdersSQL = `
       SELECT 
         c.Invoice_Id as id,
         c.Tanggal_Order as date,
         c.Harga_Total as total,
-        'completed' as status
+        CASE 
+          WHEN COALESCE(mm.total_items, 0) + COALESCE(mp.total_items, 0) > 0 THEN 'completed'
+          ELSE 'pending'
+        END as status
       FROM Customer c
-      ORDER BY c.Tanggal_Order DESC
-      LIMIT 10
-    `;
+      LEFT JOIN (
+        SELECT id_customer, COUNT(*) as total_items
+        FROM MEMESAN_MENU 
+        GROUP BY id_customer
+      ) mm ON c.Invoice_Id = mm.id_customer
+      LEFT JOIN (
+        SELECT Id_customer, COUNT(*) as total_items
+        FROM MEMESAN_PAKET 
+        GROUP BY Id_customer
+      ) mp ON c.Invoice_Id = mp.Id_customer
+      WHERE c.id_restaurant = ?
+      ORDER BY c.Tanggal_Order DESC, c.Invoice_Id DESC
+      LIMIT 5
+    `
 
-    const results = await query(sql);
-    
-    return results.map((row: any) => ({
-      id: Number(row.id),
-      date: row.date,
-      total: Number(row.total),
-      status: row.status
-    }));
-  } catch (error) {
-    console.error('Error getting recent orders:', error);
-    throw error;
-  }
-}
+    const recentOrders = await query(recentOrdersSQL, [restaurantId]) as DatabaseRecentOrder[]
 
-// Fungsi untuk mendapatkan alert stok
-async function getStockAlerts(): Promise<StockAlert[]> {
-  try {
-    const sql = `
+    // Get stock alerts
+    const stockAlertsSQL = `
       SELECT 
         s.id_stok as id,
         s.nama_bahan as name,
         s.kuantitas as quantity,
         CASE 
-          WHEN s.tanggal_exp < CURDATE() THEN 'expired'
-          WHEN s.tanggal_exp <= DATE_ADD(CURDATE(), INTERVAL 7 DAY) THEN 'critical'
-          WHEN s.tanggal_exp <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) THEN 'warning'
-          ELSE 'good'
+          WHEN s.kuantitas <= 5 THEN 'low'
+          WHEN DATEDIFF(s.tanggal_exp, CURDATE()) <= 3 THEN 'expiring'
+          ELSE 'normal'
         END as status,
-        DATEDIFF(s.tanggal_exp, CURDATE()) as daysUntilExpiry
+        GREATEST(0, DATEDIFF(s.tanggal_exp, CURDATE())) as daysUntilExpiry
       FROM STOK s
-      WHERE s.kuantitas <= 10 OR s.tanggal_exp <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)
-      ORDER BY s.tanggal_exp ASC, s.kuantitas ASC
+      WHERE s.id_restaurant = ?
+        AND (s.kuantitas <= 10 OR DATEDIFF(s.tanggal_exp, CURDATE()) <= 7)
+      ORDER BY 
+        CASE 
+          WHEN s.kuantitas <= 5 THEN 1
+          WHEN DATEDIFF(s.tanggal_exp, CURDATE()) <= 3 THEN 2
+          ELSE 3
+        END,
+        s.kuantitas ASC,
+        s.tanggal_exp ASC
       LIMIT 5
-    `;
+    `
 
-    const results = await query(sql);
-    
-    return results.map((row: any) => ({
-      id: Number(row.id),
-      name: row.name,
-      quantity: Number(row.quantity),
-      status: row.status,
-      daysUntilExpiry: Number(row.daysUntilExpiry)
-    }));
-  } catch (error) {
-    console.error('Error getting stock alerts:', error);
-    throw error;
-  }
-}
+    const stockAlerts = await query(stockAlertsSQL, [restaurantId]) as DatabaseStockAlert[]
 
-// Main GET handler
-export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const type = searchParams.get('type');
-
-    switch (type) {
-      case 'stats':
-        const stats = await getDashboardStats();
-        return NextResponse.json({
-          success: true,
-          data: stats
-        });
-
-      case 'sales':
-        const salesData = await getRecentSalesData();
-        return NextResponse.json({
-          success: true,
-          data: salesData
-        });
-
-      case 'top-products':
-        const topProducts = await getTopProducts();
-        return NextResponse.json({
-          success: true,
-          data: topProducts
-        });
-
-      case 'recent-orders':
-        const recentOrders = await getRecentOrders();
-        return NextResponse.json({
-          success: true,
-          data: recentOrders
-        });
-
-      case 'stock-alerts':
-        const stockAlerts = await getStockAlerts();
-        return NextResponse.json({
-          success: true,
-          data: stockAlerts
-        });
-
-      default:
-        // Return all data for dashboard overview
-        const [
-          dashboardStats,
-          recentSales,
-          topProductsData,
-          recentOrdersData,
-          stockAlertsData
-        ] = await Promise.all([
-          getDashboardStats(),
-          getRecentSalesData(),
-          getTopProducts(),
-          getRecentOrders(),
-          getStockAlerts()
-        ]);
-
-        return NextResponse.json({
-          success: true,
-          data: {
-            stats: dashboardStats,
-            salesData: recentSales,
-            topProducts: topProductsData,
-            recentOrders: recentOrdersData,
-            stockAlerts: stockAlertsData
-          }
-        });
-    }
-  } catch (error) {
-    console.error('Error in dashboard API:', error);
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: 'Failed to fetch dashboard data',
-        details: error instanceof Error ? error.message : 'Unknown error'
+    const dashboardData = {
+      stats: {
+        totalSales: currentSales,
+        totalOrders: currentOrders,
+        totalCustomers: currentCustomers,
+        avgOrderValue: currentAvgOrder,
+        salesGrowth: Math.round(salesGrowth * 100) / 100,
+        ordersGrowth: Math.round(ordersGrowth * 100) / 100,
+        customersGrowth: Math.round(customersGrowth * 100) / 100,
+        avgOrderGrowth: Math.round(avgOrderGrowth * 100) / 100
       },
-      { status: 500 }
-    );
-  }
-}
-
-// Health check endpoint
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { action } = body;
-
-    if (action === 'health-check') {
-      // Simple health check
-      const testQuery = 'SELECT 1 as test';
-      await query(testQuery);
-      
-      return NextResponse.json({
-        success: true,
-        message: 'Database connection is healthy',
-        timestamp: new Date().toISOString()
-      });
+      salesData: salesData.map((item: DatabaseSalesData) => ({
+        date: item.date,
+        sales: Number(item.sales),
+        orders: Number(item.orders)
+      })),
+      topProducts: topProducts.map((product: DatabaseTopProduct) => ({
+        name: product.name,
+        sales: Number(product.sales),
+        quantity: Number(product.quantity),
+        revenue: Number(product.revenue)
+      })),
+      recentOrders: recentOrders.map((order: DatabaseRecentOrder) => ({
+        id: order.id,
+        date: order.date,
+        total: Number(order.total),
+        status: order.status
+      })),
+      stockAlerts: stockAlerts.map((alert: DatabaseStockAlert) => ({
+        id: alert.id,
+        name: alert.name,
+        quantity: Number(alert.quantity),
+        status: alert.status,
+        daysUntilExpiry: Number(alert.daysUntilExpiry)
+      }))
     }
 
-    return NextResponse.json(
-      { error: 'Invalid action' },
-      { status: 400 }
-    );
+    console.log('✅ Dashboard data fetched successfully')
+
+    return NextResponse.json({
+      success: true,
+      data: dashboardData
+    })
+
   } catch (error) {
-    console.error('Error in dashboard POST:', error);
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: 'Health check failed',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    console.error('❌ Error fetching dashboard data:', error)
+    return NextResponse.json({
+      success: false,
+      error: 'Failed to fetch dashboard data',
+      message: error instanceof Error ? error.message : 'Internal server error'
+    }, { status: 500 })
   }
 }

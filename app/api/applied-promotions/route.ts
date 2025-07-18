@@ -13,6 +13,7 @@ interface AppliedPromotion {
   status: 'active' | 'paused' | 'completed';
   startDate: string;
   endDate?: string;
+  id_restaurant: number;
   performance?: {
     orders: number;
     revenue: number;
@@ -42,33 +43,50 @@ export async function GET(request: NextRequest) {
         performance_revenue DECIMAL(10,2) DEFAULT 0.00,
         performance_conversion_rate DECIMAL(5,2) DEFAULT 0.00,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        id_restaurant INT NOT NULL,
+        FOREIGN KEY (id_restaurant) REFERENCES RESTAURANT(id_restaurant) ON DELETE RESTRICT ON UPDATE RESTRICT
       )
     `;
     
     await query(checkTableSql);
     
-    // Fetch promotions
-    const selectSql = `
+    // Get restaurant filter from query params
+    const { searchParams } = new URL(request.url);
+    const restaurantId = searchParams.get('id_restaurant');
+    
+    // Build SQL query with optional restaurant filter
+    let selectSql = `
       SELECT 
-        id,
-        type,
-        description,
-        reasoning,
-        estimated_impact,
-        details,
-        applied_at,
-        status,
-        start_date,
-        end_date,
-        performance_orders,
-        performance_revenue,
-        performance_conversion_rate
-      FROM applied_promotions
-      ORDER BY applied_at DESC
+        ap.id,
+        ap.type,
+        ap.description,
+        ap.reasoning,
+        ap.estimated_impact,
+        ap.details,
+        ap.applied_at,
+        ap.status,
+        ap.start_date,
+        ap.end_date,
+        ap.performance_orders,
+        ap.performance_revenue,
+        ap.performance_conversion_rate,
+        ap.id_restaurant,
+        r.Nama_Restaurant
+      FROM applied_promotions ap
+      LEFT JOIN RESTAURANT r ON ap.id_restaurant = r.id_restaurant
     `;
     
-    const results = await query(selectSql);
+    let queryParams: any[] = [];
+    
+    if (restaurantId) {
+      selectSql += ` WHERE ap.id_restaurant = ?`;
+      queryParams.push(parseInt(restaurantId));
+    }
+    
+    selectSql += ` ORDER BY ap.applied_at DESC`;
+    
+    const results = await query(selectSql, queryParams);
     
     // Format results
     const promotions: AppliedPromotion[] = results.map((row: any) => ({
@@ -82,6 +100,8 @@ export async function GET(request: NextRequest) {
       status: row.status,
       startDate: row.start_date,
       endDate: row.end_date,
+      id_restaurant: row.id_restaurant,
+      restaurantName: row.Nama_Restaurant,
       performance: {
         orders: Number(row.performance_orders) || 0,
         revenue: Number(row.performance_revenue) || 0,

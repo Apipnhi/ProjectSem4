@@ -8,6 +8,7 @@ interface PromotionData {
   reasoning: string;
   estimatedImpact: string;
   details?: string;
+  id_restaurant?: number;
 }
 
 // Create promotion table if not exists
@@ -29,7 +30,9 @@ async function createPromotionTable() {
         performance_revenue DECIMAL(10,2) DEFAULT 0.00,
         performance_conversion_rate DECIMAL(5,2) DEFAULT 0.00,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        id_restaurant INT NOT NULL,
+        FOREIGN KEY (id_restaurant) REFERENCES RESTAURANT(id_restaurant) ON DELETE RESTRICT ON UPDATE RESTRICT
       )
     `;
     
@@ -57,12 +60,15 @@ export async function POST(request: NextRequest) {
     const endDate = new Date();
     endDate.setDate(endDate.getDate() + 30);
     
+    // Use provided restaurant ID or default to 1 for universal application
+    const restaurantId = promotionData.id_restaurant || 1;
+    
     // Insert promotion into database
     const insertSql = `
       INSERT INTO applied_promotions (
         id, type, description, reasoning, estimated_impact, details,
-        applied_at, status, start_date, end_date
-      ) VALUES (?, ?, ?, ?, ?, ?, NOW(), 'active', ?, ?)
+        applied_at, status, start_date, end_date, id_restaurant
+      ) VALUES (?, ?, ?, ?, ?, ?, NOW(), 'active', ?, ?, ?)
     `;
     
     await query(insertSql, [
@@ -73,7 +79,8 @@ export async function POST(request: NextRequest) {
       promotionData.estimatedImpact,
       promotionData.details || '',
       startDate,
-      endDate
+      endDate,
+      restaurantId
     ]);
     
     // Return success response
@@ -86,7 +93,8 @@ export async function POST(request: NextRequest) {
         appliedAt: startDate.toISOString(),
         status: 'active' as const,
         startDate: startDate.toISOString(),
-        endDate: endDate.toISOString()
+        endDate: endDate.toISOString(),
+        id_restaurant: restaurantId
       }
     };
     

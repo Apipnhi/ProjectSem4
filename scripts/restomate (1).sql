@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost:8889
--- Generation Time: Jul 17, 2025 at 10:22 AM
+-- Generation Time: Jul 17, 2025 at 01:40 PM
 -- Server version: 8.0.40
 -- PHP Version: 8.3.14
 
@@ -42,7 +42,8 @@ CREATE TABLE `applied_promotions` (
   `performance_revenue` decimal(10,2) DEFAULT '0.00',
   `performance_conversion_rate` decimal(5,2) DEFAULT '0.00',
   `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `id_restaurant` int NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- --------------------------------------------------------
@@ -1372,7 +1373,8 @@ INSERT INTO `STOK` (`id_stok`, `nama_bahan`, `kuantitas`, `tanggal_pembelian`, `
 -- Indexes for table `applied_promotions`
 --
 ALTER TABLE `applied_promotions`
-  ADD PRIMARY KEY (`id`);
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `id_restaurant` (`id_restaurant`);
 
 --
 -- Indexes for table `Customer`
@@ -1460,6 +1462,12 @@ ALTER TABLE `RESTAURANT`
 --
 -- Constraints for dumped tables
 --
+
+--
+-- Constraints for table `applied_promotions`
+--
+ALTER TABLE `applied_promotions`
+  ADD CONSTRAINT `applied_promotions_ibfk_1` FOREIGN KEY (`id_restaurant`) REFERENCES `RESTAURANT` (`id_restaurant`) ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 --
 -- Constraints for table `Customer`

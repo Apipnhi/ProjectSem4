@@ -12,32 +12,45 @@ interface RouteParams {
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = params;
-    const { status } = await request.json();
+    const { status, performance_orders, performance_revenue, performance_conversion_rate } = await request.json();
     
-    console.log(`🔄 Updating promotion ${id} status to ${status}`);
+    console.log(`🔄 Updating promotion ${id}`);
     
-    if (!status) {
-      return NextResponse.json(
-        { success: false, error: 'Status is required' },
-        { status: 400 }
-      );
-    }
-    
-    if (!['active', 'paused', 'completed'].includes(status)) {
+    if (status && !['active', 'paused', 'completed'].includes(status)) {
       return NextResponse.json(
         { success: false, error: 'Invalid status value' },
         { status: 400 }
       );
     }
     
-    // Update promotion status
-    const updateSql = `
-      UPDATE applied_promotions 
-      SET status = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `;
+    // Build dynamic update query
+    let updateSql = `UPDATE applied_promotions SET updated_at = CURRENT_TIMESTAMP`;
+    let queryParams: any[] = [];
     
-    const result = await query(updateSql, [status, id]);
+    if (status) {
+      updateSql += `, status = ?`;
+      queryParams.push(status);
+    }
+    
+    if (performance_orders !== undefined) {
+      updateSql += `, performance_orders = ?`;
+      queryParams.push(performance_orders);
+    }
+    
+    if (performance_revenue !== undefined) {
+      updateSql += `, performance_revenue = ?`;
+      queryParams.push(performance_revenue);
+    }
+    
+    if (performance_conversion_rate !== undefined) {
+      updateSql += `, performance_conversion_rate = ?`;
+      queryParams.push(performance_conversion_rate);
+    }
+    
+    updateSql += ` WHERE id = ?`;
+    queryParams.push(id);
+    
+    const result = await query(updateSql, queryParams);
     
     if (result.affectedRows === 0) {
       return NextResponse.json(
@@ -46,22 +59,21 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       );
     }
     
-    console.log(`✅ Promotion ${id} status updated to ${status}`);
+    console.log(`✅ Promotion ${id} updated successfully`);
     
     return NextResponse.json({
       success: true,
-      message: `Promotion status updated to ${status}`,
-      id: id,
-      newStatus: status
+      message: `Promotion updated successfully`,
+      id: id
     });
     
   } catch (error) {
-    console.error('❌ Error updating promotion status:', error);
+    console.error('❌ Error updating promotion:', error);
     
     return NextResponse.json(
       {
         success: false,
-        error: 'Failed to update promotion status',
+        error: 'Failed to update promotion',
         message: error instanceof Error ? error.message : 'Unknown error occurred'
       },
       { status: 500 }
@@ -116,24 +128,27 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     
     console.log(`📋 Fetching promotion ${id}`);
     
-    // Fetch specific promotion
+    // Fetch specific promotion with restaurant info
     const selectSql = `
       SELECT 
-        id,
-        type,
-        description,
-        reasoning,
-        estimated_impact,
-        details,
-        applied_at,
-        status,
-        start_date,
-        end_date,
-        performance_orders,
-        performance_revenue,
-        performance_conversion_rate
-      FROM applied_promotions
-      WHERE id = ?
+        ap.id,
+        ap.type,
+        ap.description,
+        ap.reasoning,
+        ap.estimated_impact,
+        ap.details,
+        ap.applied_at,
+        ap.status,
+        ap.start_date,
+        ap.end_date,
+        ap.performance_orders,
+        ap.performance_revenue,
+        ap.performance_conversion_rate,
+        ap.id_restaurant,
+        r.Nama_Restaurant
+      FROM applied_promotions ap
+      LEFT JOIN RESTAURANT r ON ap.id_restaurant = r.id_restaurant
+      WHERE ap.id = ?
     `;
     
     const results = await query(selectSql, [id]);
@@ -157,6 +172,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       status: row.status,
       startDate: row.start_date,
       endDate: row.end_date,
+      id_restaurant: row.id_restaurant,
+      restaurantName: row.Nama_Restaurant,
       performance: {
         orders: Number(row.performance_orders) || 0,
         revenue: Number(row.performance_revenue) || 0,
