@@ -1,513 +1,465 @@
-// app/api/orders/route.ts - Enhanced with comprehensive order management
-import { NextRequest, NextResponse } from "next/server"
-import { query } from "@/lib/db"
+// app/api/orders/route.ts - Fixed Complete Version
+import { NextRequest, NextResponse } from 'next/server';
+import { query } from '@/lib/db';
 
-// Interface untuk Order data
-interface Order {
-  Invoice_Id: string;
-  Tanggal_Order: string;
-  Harga_Total: number;
-  id_restaurant: number;
-  status?: string;
-}
-
+// Types
 interface OrderItem {
-  id_menu: number;
+  name: string;
+  quantity: number;
   kuantitas: number;
-  nama_menu?: string;
-  harga?: number;
+  price: number;
 }
 
-interface CreateOrderRequest {
-  customer_data: {
-    Invoice_Id: string;
-    id_restaurant: number;
-    Harga_Total: number;
-  };
+interface Order {
+  id: string;
+  invoice_id: number | string;
+  customer: string;
+  date: string | Date;
+  total: number;
+  restaurant_id: number;
+  restaurant_name: string;
+  total_items: number;
+  total_quantity: number;
+  menu_items: string;
+  status: 'pending' | 'in-progress' | 'ready' | 'completed' | 'cancelled';
   items: OrderItem[];
-  customer_name?: string;
-  order_type?: 'dine-in' | 'takeout' | 'delivery';
-  payment_method?: 'cash' | 'card' | 'digital';
-  notes?: string;
+  type?: 'dine-in' | 'takeout' | 'delivery';
+  time?: string;
+  order_size?: 'small' | 'medium' | 'large';
+  order_time_period?: 'morning' | 'afternoon' | 'evening';
 }
 
-// GET all orders with comprehensive data using ALL TIME records
-export async function GET(request: NextRequest): Promise<NextResponse> {
+// Helper function to safely convert to number
+function safeNumber(value: any): number {
+  const num = typeof value === 'string' ? parseFloat(value) : Number(value);
+  return isNaN(num) ? 0 : num;
+}
+
+// Helper function to determine order size
+function getOrderSize(total: number): 'small' | 'medium' | 'large' {
+  if (total < 50000) return 'small';
+  if (total < 100000) return 'medium';
+  return 'large';
+}
+
+// Helper function to determine time period
+function getTimePeriod(date: Date): 'morning' | 'afternoon' | 'evening' {
+  const hour = date.getHours();
+  if (hour < 12) return 'morning';
+  if (hour < 18) return 'afternoon';
+  return 'evening';
+}
+
+// Helper function to generate order type
+function getOrderType(): 'dine-in' | 'takeout' | 'delivery' {
+  const types: ('dine-in' | 'takeout' | 'delivery')[] = ['dine-in', 'takeout', 'delivery'];
+  return types[Math.floor(Math.random() * types.length)];
+}
+
+// Create order status table if it doesn't exist
+async function createOrderStatusTable() {
+  const createTableSQL = `
+    CREATE TABLE IF NOT EXISTS order_status (
+      invoice_id INT PRIMARY KEY,
+      status ENUM('pending', 'in-progress', 'ready', 'completed', 'cancelled') DEFAULT 'pending',
+      notes TEXT NULL,
+      estimated_completion DATETIME NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      updated_by VARCHAR(255) DEFAULT 'system',
+      FOREIGN KEY (invoice_id) REFERENCES Customer(Invoice_Id) ON DELETE CASCADE
+    );
+  `;
+  
   try {
-    console.log('🔍 Fetching comprehensive orders data...');
-
-    // Get query parameters
-    const { searchParams } = new URL(request.url)
-    const status = searchParams.get("status")
-    const restaurantId = searchParams.get("restaurant_id")
-    const limit = searchParams.get("limit") || "50"
-    const offset = searchParams.get("offset") || "0"
-    const orderType = searchParams.get("order_type")
-    const searchTerm = searchParams.get("search")
-
-    // Build comprehensive ALL TIME orders query
-    let whereConditions: string[] = []
-    
-    if (restaurantId) {
-      whereConditions.push(`c.id_restaurant = ${parseInt(restaurantId)}`)
-    }
-
-    // Add search functionality
-    if (searchTerm) {
-      whereConditions.push(`(c.Invoice_Id LIKE '%${searchTerm}%' OR m.Nama_Menu LIKE '%${searchTerm}%')`)
-    }
-
-    const whereClause = whereConditions.length > 0 ? 
-      `WHERE ${whereConditions.join(' AND ')}` : ''
-
-    // Comprehensive orders query with ALL TIME data
-    const ordersSQL = `
-      SELECT 
-        c.Invoice_Id,
-        c.Tanggal_Order,
-        c.Harga_Total,
-        c.id_restaurant,
-        r.nama_restaurant,
-        
-        -- ORDER ITEMS COUNT AND DETAILS
-        COUNT(DISTINCT mm.id_menu) as total_items,
-        GROUP_CONCAT(DISTINCT CONCAT(m.Nama_Menu, ' (', mm.kuantitas, ')') SEPARATOR ', ') as menu_items,
-        SUM(mm.kuantitas) as total_quantity,
-        
-        -- CUSTOMER ANALYSIS
-        (SELECT COUNT(*) 
-         FROM Customer c2 
-         WHERE c2.Invoice_Id = c.Invoice_Id 
-           AND c2.Tanggal_Order < c.Tanggal_Order) as previous_orders,
-        
-        -- RESTAURANT PERFORMANCE METRICS
-        c.Harga_Total / NULLIF((
-          SELECT AVG(c3.Harga_Total) 
-          FROM Customer c3 
-          WHERE c3.id_restaurant = c.id_restaurant
-        ), 0) as order_value_vs_restaurant_avg,
-        
-        -- ORDER TIMING ANALYSIS
-        HOUR(c.Tanggal_Order) as order_hour,
-        DAYOFWEEK(c.Tanggal_Order) as order_day_of_week,
-        
-        -- REVENUE ANALYSIS
-        (SELECT SUM(c4.Harga_Total) 
-         FROM Customer c4 
-         WHERE c4.id_restaurant = c.id_restaurant 
-           AND DATE(c4.Tanggal_Order) = DATE(c.Tanggal_Order)) as daily_restaurant_revenue,
-        
-        -- MENU PERFORMANCE
-        (SELECT GROUP_CONCAT(DISTINCT CONCAT(m2.Nama_Menu, ':', m2.Harga) SEPARATOR '|')
-         FROM MEMESAN_MENU mm2
-         JOIN menu m2 ON mm2.id_menu = m2.Id_Menu
-         WHERE mm2.id_customer = c.Invoice_Id) as detailed_items,
-         
-        -- ORDER STATUS SIMULATION (since no status field in Customer table)
-        CASE 
-          WHEN DATEDIFF(NOW(), c.Tanggal_Order) > 1 THEN 'completed'
-          WHEN HOUR(NOW()) - HOUR(c.Tanggal_Order) > 2 THEN 'completed'
-          WHEN HOUR(NOW()) - HOUR(c.Tanggal_Order) > 1 THEN 'ready'
-          WHEN HOUR(NOW()) - HOUR(c.Tanggal_Order) > 0 THEN 'in-progress'
-          ELSE 'pending'
-        END as calculated_status
-        
-      FROM Customer c
-      LEFT JOIN RESTAURANT r ON c.id_restaurant = r.id_restaurant
-      LEFT JOIN MEMESAN_MENU mm ON c.Invoice_Id = mm.id_customer
-      LEFT JOIN menu m ON mm.id_menu = m.Id_Menu
-      ${whereClause}
-      GROUP BY c.Invoice_Id, c.Tanggal_Order, c.Harga_Total, c.id_restaurant, r.nama_restaurant
-      ORDER BY c.Tanggal_Order DESC, c.Invoice_Id DESC
-      LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}
-    `
-
-    // Get total count
-    const countSQL = `
-      SELECT COUNT(DISTINCT c.Invoice_Id) as total
-      FROM Customer c
-      LEFT JOIN MEMESAN_MENU mm ON c.Invoice_Id = mm.id_customer
-      LEFT JOIN menu m ON mm.id_menu = m.Id_Menu
-      ${whereClause}
-    `
-
-    const [orders, countResult] = await Promise.all([
-      query(ordersSQL),
-      query(countSQL)
-    ])
-
-    const total = countResult[0]?.total || 0
-
-    console.log(`✅ Found ${orders.length} orders out of ${total} total`)
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        orders: orders.map((order: any) => ({
-          id: `#${order.Invoice_Id}`,
-          invoice_id: order.Invoice_Id,
-          customer: order.Invoice_Id < 100 ? `Table ${order.Invoice_Id % 10}` : `Customer ${order.Invoice_Id}`,
-          date: order.Tanggal_Order,
-          total: parseFloat(order.Harga_Total),
-          restaurant_id: order.id_restaurant,
-          restaurant_name: order.nama_restaurant || 'Unknown Restaurant',
-          total_items: parseInt(order.total_items) || 0,
-          total_quantity: parseInt(order.total_quantity) || 0,
-          menu_items: order.menu_items || '',
-          previous_orders: parseInt(order.previous_orders) || 0,
-          status: status || order.calculated_status || 'completed',
-          
-          // Enhanced fields for frontend
-          items: order.detailed_items ? 
-            order.detailed_items.split('|').map((item: string) => {
-              const [name, price] = item.split(':');
-              return { name, price: parseFloat(price) || 0 };
-            }) : [],
-          
-          // Time analysis
-          time: order.Tanggal_Order ? new Date(order.Tanggal_Order).toLocaleString() : '',
-          order_hour: parseInt(order.order_hour) || 0,
-          order_day: parseInt(order.order_day_of_week) || 1,
-          
-          // Performance metrics
-          vs_restaurant_avg: parseFloat(order.order_value_vs_restaurant_avg) || 1,
-          daily_restaurant_revenue: parseFloat(order.daily_restaurant_revenue) || 0,
-          
-          // Categorization for frontend
-          order_size: parseFloat(order.Harga_Total) > 75000 ? 'large' : 
-                     parseFloat(order.Harga_Total) > 45000 ? 'medium' : 'small',
-          order_time_period: order.order_hour < 12 ? 'morning' : 
-                           order.order_hour < 17 ? 'afternoon' : 'evening',
-          
-          // Order type simulation based on amount and items
-          type: parseFloat(order.Harga_Total) > 80000 ? 'delivery' :
-                parseInt(order.total_items) > 3 ? 'dine-in' : 'takeout'
-        })),
-        pagination: {
-          total,
-          limit: parseInt(limit),
-          offset: parseInt(offset),
-          hasMore: (parseInt(offset) + orders.length) < total
-        }
-      }
-    }, { status: 200 })
-
+    await query(createTableSQL);
   } catch (error) {
-    console.error("❌ Error fetching orders:", error)
-    return NextResponse.json({ 
-      success: false,
-      error: "Failed to fetch orders",
-      message: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 })
+    console.log('Order status table might already exist:', error);
   }
 }
 
-// POST - Create a new order with comprehensive data tracking
-export async function POST(request: NextRequest): Promise<NextResponse> {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    console.log('📝 Creating new order...')
-    const body: CreateOrderRequest = await request.json()
+    const { searchParams } = new URL(request.url);
+    const restaurantId = searchParams.get('restaurant_id') || '1';
+    const status = searchParams.get('status');
+    const orderType = searchParams.get('order_type');
+    const searchTerm = searchParams.get('search');
+    const limit = parseInt(searchParams.get('limit') || '50');
+    const offset = parseInt(searchParams.get('offset') || '0');
 
-    // Validate required fields
-    if (!body.customer_data || !body.items || !Array.isArray(body.items) || body.items.length === 0) {
-      return NextResponse.json({ 
-        success: false,
-        error: "Missing required fields: customer_data and items are required" 
-      }, { status: 400 })
-    }
+    console.log('📋 Fetching orders:', { restaurantId, status, orderType, searchTerm, limit, offset });
 
-    const { customer_data, items, customer_name, order_type, payment_method, notes } = body
+    // Ensure order status table exists
+    await createOrderStatusTable();
 
-    // Validate customer data
-    if (!customer_data.Invoice_Id || !customer_data.id_restaurant || !customer_data.Harga_Total) {
-      return NextResponse.json({ 
-        success: false,
-        error: "Missing required customer data: Invoice_Id, id_restaurant, and Harga_Total" 
-      }, { status: 400 })
-    }
-
-    // Validate items
-    for (const item of items) {
-      if (!item.id_menu || !item.kuantitas || item.kuantitas <= 0) {
-        return NextResponse.json({ 
-          success: false,
-          error: "Invalid item data: each item must have id_menu and kuantitas > 0" 
-        }, { status: 400 })
-      }
-    }
-
-    // Check if Invoice_Id already exists
-    const existingOrderSQL = `SELECT Invoice_Id FROM Customer WHERE Invoice_Id = ?`
-    const existingOrder = await query(existingOrderSQL, [customer_data.Invoice_Id])
-    
-    if (existingOrder && existingOrder.length > 0) {
-      return NextResponse.json({ 
-        success: false,
-        error: "Order with this Invoice ID already exists",
-        code: 'DUPLICATE_ORDER'
-      }, { status: 409 })
-    }
-
-    // Validate menu items exist
-    const menuIds = items.map(item => item.id_menu)
-    const menuCheckSQL = `
-      SELECT Id_Menu, Nama_Menu, Harga, Status 
-      FROM menu 
-      WHERE Id_Menu IN (${menuIds.join(',')}) AND Status = 1
-    `
-    const validMenus = await query(menuCheckSQL)
-    
-    if (validMenus.length !== menuIds.length) {
-      return NextResponse.json({ 
-        success: false,
-        error: "One or more menu items are invalid or unavailable" 
-      }, { status: 400 })
-    }
-
-    // Calculate total from database prices (verification)
-    let calculatedTotal = 0
-    for (const item of items) {
-      const menu = validMenus.find((m: any) => m.Id_Menu === item.id_menu)
-      if (menu) {
-        calculatedTotal += menu.Harga * item.kuantitas
-      }
-    }
-
-    // Verify total matches (allow 5% variance for tax/service charge)
-    const totalDifference = Math.abs(calculatedTotal - customer_data.Harga_Total)
-    const allowedVariance = calculatedTotal * 0.05
-    
-    if (totalDifference > allowedVariance) {
-      console.warn(`Total mismatch: calculated ${calculatedTotal}, provided ${customer_data.Harga_Total}`)
-    }
-
-    console.log('💾 Inserting customer order...')
-
-    // Insert customer order
-    const customerSQL = `
-      INSERT INTO Customer (Invoice_Id, Tanggal_Order, Harga_Total, id_restaurant)
-      VALUES (?, NOW(), ?, ?)
-    `
-    
-    await query(customerSQL, [
-      customer_data.Invoice_Id,
-      customer_data.Harga_Total,
-      customer_data.id_restaurant
-    ])
-
-    // Insert order items
-    console.log('📦 Inserting order items...')
-    
-    for (const item of items) {
-      const itemSQL = `
-        INSERT INTO MEMESAN_MENU (id_customer, id_menu, kuantitas)
-        VALUES (?, ?, ?)
-      `
-      
-      await query(itemSQL, [
-        customer_data.Invoice_Id,
-        item.id_menu,
-        item.kuantitas
-      ])
-    }
-
-    // Get the created order details for response
-    const orderDetailsSQL = `
+    // Base query with order details
+    let ordersSQL = `
       SELECT 
         c.Invoice_Id,
         c.Tanggal_Order,
         c.Harga_Total,
         c.id_restaurant,
-        r.nama_restaurant,
-        COUNT(mm.id_menu) as total_items,
-        SUM(mm.kuantitas) as total_quantity,
-        GROUP_CONCAT(CONCAT(m.Nama_Menu, ' (', mm.kuantitas, ')') SEPARATOR ', ') as items_list
+        CONCAT('Customer #', c.Invoice_Id) as customer_name,
+        COALESCE(os.status, 'pending') as status,
+        os.notes,
+        os.estimated_completion,
+        os.updated_at,
+        os.updated_by,
+        
+        -- Calculate order metrics
+        (SELECT COUNT(*) FROM MEMESAN_MENU mm WHERE mm.id_customer = c.Invoice_Id) as total_items,
+        (SELECT COALESCE(SUM(mm.kuantitas), COUNT(*)) FROM MEMESAN_MENU mm WHERE mm.id_customer = c.Invoice_Id) as total_quantity,
+        (SELECT GROUP_CONCAT(m.Nama_Menu SEPARATOR ', ') 
+         FROM MEMESAN_MENU mm 
+         JOIN menu m ON mm.id_menu = m.Id_Menu 
+         WHERE mm.id_customer = c.Invoice_Id) as menu_items,
+        
+        -- Restaurant info
+        'Restaurant' as nama_restaurant,
+        
+        -- Time calculations
+        TIMESTAMPDIFF(MINUTE, c.Tanggal_Order, NOW()) as minutes_since_order
+        
       FROM Customer c
-      LEFT JOIN RESTAURANT r ON c.id_restaurant = r.id_restaurant
-      LEFT JOIN MEMESAN_MENU mm ON c.Invoice_Id = mm.id_customer
-      LEFT JOIN menu m ON mm.id_menu = m.Id_Menu
-      WHERE c.Invoice_Id = ?
-      GROUP BY c.Invoice_Id, c.Tanggal_Order, c.Harga_Total, c.id_restaurant, r.nama_restaurant
-    `
-    
-    const orderDetails = await query(orderDetailsSQL, [customer_data.Invoice_Id])
-    const order = orderDetails[0]
+      LEFT JOIN order_status os ON c.Invoice_Id = os.invoice_id
+      WHERE c.id_restaurant = ?
+    `;
 
-    console.log('✅ Order created successfully:', customer_data.Invoice_Id)
+    const queryParams: any[] = [parseInt(restaurantId)];
+
+    // Add status filter
+    if (status && status !== 'all') {
+      ordersSQL += ' AND COALESCE(os.status, "pending") = ?';
+      queryParams.push(status);
+    }
+
+    // Add search filter
+    if (searchTerm) {
+      ordersSQL += ' AND (c.Invoice_Id LIKE ? OR CONCAT("Customer #", c.Invoice_Id) LIKE ?)';
+      queryParams.push(`%${searchTerm}%`, `%${searchTerm}%`);
+    }
+
+    // Add ordering
+    ordersSQL += ' ORDER BY c.Tanggal_Order DESC';
+
+    // Add pagination
+    ordersSQL += ' LIMIT ? OFFSET ?';
+    queryParams.push(limit, offset);
+
+    const ordersResult = await query(ordersSQL, queryParams);
+
+    // Process orders
+    const orders: Order[] = [];
+    
+    for (const orderRow of ordersResult || []) {
+      // Get order items
+      const itemsSQL = `
+        SELECT 
+          m.Nama_Menu as name,
+          mm.kuantitas as quantity,
+          m.Harga as price
+        FROM MEMESAN_MENU mm
+        JOIN menu m ON mm.id_menu = m.Id_Menu
+        WHERE mm.id_customer = ?
+      `;
+
+      const itemsResult = await query(itemsSQL, [orderRow.Invoice_Id]);
+      
+      const items: OrderItem[] = (itemsResult || []).map((item: any) => ({
+        name: String(item.name || 'Unknown Item'),
+        quantity: safeNumber(item.quantity) || 1,
+        kuantitas: safeNumber(item.quantity) || 1,
+        price: safeNumber(item.price)
+      }));
+
+      const orderDate = new Date(orderRow.Tanggal_Order);
+      const total = safeNumber(orderRow.Harga_Total);
+      
+      orders.push({
+        id: `#${orderRow.Invoice_Id}`,
+        invoice_id: orderRow.Invoice_Id,
+        customer: String(orderRow.customer_name || `Customer #${orderRow.Invoice_Id}`),
+        date: orderDate.toISOString(),
+        total: total,
+        restaurant_id: safeNumber(orderRow.id_restaurant),
+        restaurant_name: String(orderRow.nama_restaurant || 'Restaurant'),
+        total_items: safeNumber(orderRow.total_items),
+        total_quantity: safeNumber(orderRow.total_quantity),
+        menu_items: String(orderRow.menu_items || ''),
+        status: orderRow.status || 'pending',
+        items: items,
+        type: getOrderType(),
+        time: orderDate.toLocaleTimeString(),
+        order_size: getOrderSize(total),
+        order_time_period: getTimePeriod(orderDate)
+      });
+    }
+
+    // Get total count for pagination
+    let countSQL = `
+      SELECT COUNT(*) as total 
+      FROM Customer c
+      LEFT JOIN order_status os ON c.Invoice_Id = os.invoice_id
+      WHERE c.id_restaurant = ?
+    `;
+    
+    const countParams: any[] = [parseInt(restaurantId)];
+    
+    if (status && status !== 'all') {
+      countSQL += ' AND COALESCE(os.status, "pending") = ?';
+      countParams.push(status);
+    }
+    
+    if (searchTerm) {
+      countSQL += ' AND (c.Invoice_Id LIKE ? OR CONCAT("Customer #", c.Invoice_Id) LIKE ?)';
+      countParams.push(`%${searchTerm}%`, `%${searchTerm}%`);
+    }
+
+    const countResult = await query(countSQL, countParams);
+    const total = safeNumber(countResult[0]?.total);
+
+    const response = {
+      success: true,
+      data: {
+        orders: orders,
+        pagination: {
+          total: total,
+          limit: limit,
+          offset: offset,
+          hasMore: offset + limit < total
+        }
+      },
+      metadata: {
+        restaurant_id: parseInt(restaurantId),
+        filters: {
+          status: status || 'all',
+          order_type: orderType || 'all',
+          search: searchTerm || null
+        },
+        total_orders: orders.length,
+        data_source: 'database'
+      }
+    };
+
+    console.log(`✅ Orders fetched: ${orders.length} of ${total} total`);
+    return NextResponse.json(response);
+
+  } catch (error) {
+    console.error('❌ Error fetching orders:', error);
+    
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Failed to fetch orders',
+        message: error instanceof Error ? error.message : 'Unknown error occurred',
+        data: {
+          orders: [],
+          pagination: { total: 0, limit: 50, offset: 0, hasMore: false }
+        }
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// POST method for creating new orders
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { customer_name, items, restaurant_id, notes } = body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Items array is required' },
+        { status: 400 }
+      );
+    }
+
+    // Calculate total
+    let total = 0;
+    for (const item of items) {
+      const menuResult = await query('SELECT Harga FROM menu WHERE Id_Menu = ?', [item.menu_id]);
+      if (menuResult.length > 0) {
+        total += safeNumber(menuResult[0].Harga) * safeNumber(item.quantity);
+      }
+    }
+
+    // Create customer order
+    const insertCustomerSQL = `
+      INSERT INTO Customer (Tanggal_Order, Harga_Total, id_restaurant)
+      VALUES (NOW(), ?, ?)
+    `;
+
+    const customerResult = await query(insertCustomerSQL, [
+      total,
+      parseInt(restaurant_id || '1')
+    ]);
+
+    const invoiceId = (customerResult as any).insertId;
+
+    // Insert menu items
+    for (const item of items) {
+      const insertItemSQL = `
+        INSERT INTO MEMESAN_MENU (id_menu, kuantitas, id_customer)
+        VALUES (?, ?, ?)
+      `;
+      
+      await query(insertItemSQL, [
+        parseInt(item.menu_id),
+        parseInt(item.quantity),
+        invoiceId
+      ]);
+    }
+
+    // Create initial order status
+    await createOrderStatusTable();
+    const insertStatusSQL = `
+      INSERT INTO order_status (invoice_id, status, notes, updated_by)
+      VALUES (?, 'pending', ?, 'api_user')
+    `;
+    
+    await query(insertStatusSQL, [invoiceId, notes || null]);
 
     return NextResponse.json({
       success: true,
-      message: "Order created successfully",
+      message: 'Order created successfully',
+      data: {
+        invoice_id: invoiceId,
+        total: total,
+        items_count: items.length,
+        status: 'pending'
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error creating order:', error);
+    
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Failed to create order',
+        message: error instanceof Error ? error.message : 'Unknown error occurred'
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// PATCH method for updating order status
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { invoice_id, status, notes, estimated_completion } = body;
+
+    if (!invoice_id || !status) {
+      return NextResponse.json(
+        { success: false, error: 'Invoice ID and status are required' },
+        { status: 400 }
+      );
+    }
+
+    const validStatuses = ['pending', 'in-progress', 'ready', 'completed', 'cancelled'];
+    if (!validStatuses.includes(status)) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` 
+        },
+        { status: 400 }
+      );
+    }
+
+    // Ensure order exists
+    const orderCheckSQL = `SELECT Invoice_Id FROM Customer WHERE Invoice_Id = ?`;
+    const existingOrder = await query(orderCheckSQL, [invoice_id]);
+    
+    if (!existingOrder || existingOrder.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Order not found' },
+        { status: 404 }
+      );
+    }
+
+    // Ensure status table exists
+    await createOrderStatusTable();
+
+    // Update or insert status
+    const upsertStatusSQL = `
+      INSERT INTO order_status (invoice_id, status, notes, estimated_completion, updated_by)
+      VALUES (?, ?, ?, ?, 'api_user')
+      ON DUPLICATE KEY UPDATE
+        status = VALUES(status),
+        notes = VALUES(notes),
+        estimated_completion = VALUES(estimated_completion),
+        updated_at = CURRENT_TIMESTAMP,
+        updated_by = VALUES(updated_by)
+    `;
+
+    await query(upsertStatusSQL, [
+      invoice_id,
+      status,
+      notes || null,
+      estimated_completion || null
+    ]);
+
+    // Get updated order details
+    const orderDetailsSQL = `
+      SELECT 
+        c.Invoice_Id,
+        c.Harga_Total,
+        c.Tanggal_Order,
+        os.status,
+        os.notes,
+        os.estimated_completion,
+        os.updated_at,
+        os.updated_by,
+        (SELECT COUNT(*) FROM MEMESAN_MENU mm WHERE mm.id_customer = c.Invoice_Id) as total_items,
+        (SELECT GROUP_CONCAT(m.Nama_Menu SEPARATOR ', ') 
+         FROM MEMESAN_MENU mm 
+         JOIN menu m ON mm.id_menu = m.Id_Menu 
+         WHERE mm.id_customer = c.Invoice_Id) as menu_items,
+        'Restaurant' as nama_restaurant,
+        TIMESTAMPDIFF(MINUTE, c.Tanggal_Order, NOW()) as minutes_since_order
+      FROM Customer c
+      LEFT JOIN order_status os ON c.Invoice_Id = os.invoice_id
+      WHERE c.Invoice_Id = ?
+    `;
+
+    const orderResult = await query(orderDetailsSQL, [invoice_id]);
+    const order = orderResult[0];
+
+    return NextResponse.json({
+      success: true,
+      message: `Order status updated to ${status}`,
       data: {
         order: {
           id: `#${order.Invoice_Id}`,
           invoice_id: order.Invoice_Id,
-          date: order.Tanggal_Order,
-          total: parseFloat(order.Harga_Total),
-          restaurant_id: order.id_restaurant,
-          restaurant_name: order.nama_restaurant,
-          total_items: parseInt(order.total_items),
-          total_quantity: parseInt(order.total_quantity),
-          status: 'pending',
-          customer: customer_name || `Customer ${order.Invoice_Id}`,
-          type: order_type || 'dine-in',
-          payment_method: payment_method || 'cash',
-          notes: notes || '',
-          items_list: order.items_list,
-          items: items.map(item => {
-            const menu = validMenus.find((m: any) => m.Id_Menu === item.id_menu)
-            return {
-              id_menu: item.id_menu,
-              name: menu?.Nama_Menu || 'Unknown Item',
-              quantity: item.kuantitas,
-              price: menu?.Harga || 0
-            }
-          })
+          status: order.status,
+          notes: order.notes,
+          estimated_completion: order.estimated_completion,
+          updated_at: order.updated_at,
+          updated_by: order.updated_by,
+          total: safeNumber(order.Harga_Total),
+          total_items: safeNumber(order.total_items),
+          menu_items: String(order.menu_items || ''),
+          restaurant_name: String(order.nama_restaurant || 'Restaurant'),
+          minutes_since_order: safeNumber(order.minutes_since_order)
         }
       }
-    }, { status: 201 })
+    });
 
   } catch (error) {
-    console.error("❌ Error creating order:", error)
+    console.error('❌ Error updating order status:', error);
     
-    // Check for duplicate key error
-    if (error instanceof Error && error.message.includes('Duplicate entry')) {
-      return NextResponse.json({ 
+    return NextResponse.json(
+      {
         success: false,
-        error: "Order with this Invoice ID already exists",
-        code: 'DUPLICATE_ORDER'
-      }, { status: 409 })
-    }
-
-    return NextResponse.json({ 
-      success: false,
-      error: "Failed to create order",
-      message: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 })
-  }
-}
-
-// PUT - Update an existing order
-export async function PUT(request: NextRequest): Promise<NextResponse> {
-  try {
-    console.log('📝 Updating order...')
-    const body = await request.json()
-    const { invoice_id, customer_data, items } = body
-
-    if (!invoice_id) {
-      return NextResponse.json({ 
-        success: false,
-        error: "Invoice ID is required for update" 
-      }, { status: 400 })
-    }
-
-    // Check if order exists
-    const checkSQL = `SELECT Invoice_Id, id_restaurant FROM Customer WHERE Invoice_Id = ?`
-    const existingOrder = await query(checkSQL, [invoice_id])
-    
-    if (!existingOrder || existingOrder.length === 0) {
-      return NextResponse.json({ 
-        success: false,
-        error: "Order not found" 
-      }, { status: 404 })
-    }
-
-    // Update customer data if provided
-    if (customer_data) {
-      const updateFields = []
-      const updateValues = []
-
-      if (customer_data.Harga_Total !== undefined) {
-        updateFields.push('Harga_Total = ?')
-        updateValues.push(customer_data.Harga_Total)
-      }
-
-      if (updateFields.length > 0) {
-        updateValues.push(invoice_id)
-        const updateSQL = `UPDATE Customer SET ${updateFields.join(', ')} WHERE Invoice_Id = ?`
-        await query(updateSQL, updateValues)
-      }
-    }
-
-    // Update items if provided
-    if (items && Array.isArray(items)) {
-      // Delete existing items
-      await query(`DELETE FROM MEMESAN_MENU WHERE id_customer = ?`, [invoice_id])
-      
-      // Insert new items
-      for (const item of items) {
-        if (item.id_menu && item.kuantitas && item.kuantitas > 0) {
-          await query(
-            `INSERT INTO MEMESAN_MENU (id_customer, id_menu, kuantitas) VALUES (?, ?, ?)`,
-            [invoice_id, item.id_menu, item.kuantitas]
-          )
-        }
-      }
-    }
-
-    console.log('✅ Order updated successfully:', invoice_id)
-
-    return NextResponse.json({
-      success: true,
-      message: "Order updated successfully",
-      data: { invoice_id }
-    }, { status: 200 })
-
-  } catch (error) {
-    console.error("❌ Error updating order:", error)
-    return NextResponse.json({ 
-      success: false,
-      error: "Failed to update order",
-      message: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 })
-  }
-}
-
-// DELETE - Remove an order
-export async function DELETE(request: NextRequest): Promise<NextResponse> {
-  try {
-    console.log('🗑️ Deleting order...')
-    const { searchParams } = new URL(request.url)
-    const invoiceId = searchParams.get("invoice_id")
-
-    if (!invoiceId) {
-      return NextResponse.json({ 
-        success: false,
-        error: "Invoice ID is required for deletion" 
-      }, { status: 400 })
-    }
-
-    // Check if order exists
-    const checkSQL = `SELECT Invoice_Id FROM Customer WHERE Invoice_Id = ?`
-    const existingOrder = await query(checkSQL, [invoiceId])
-    
-    if (!existingOrder || existingOrder.length === 0) {
-      return NextResponse.json({ 
-        success: false,
-        error: "Order not found" 
-      }, { status: 404 })
-    }
-
-    // Delete order items first (foreign key constraint)
-    await query(`DELETE FROM MEMESAN_MENU WHERE id_customer = ?`, [invoiceId])
-    
-    // Delete customer order
-    await query(`DELETE FROM Customer WHERE Invoice_Id = ?`, [invoiceId])
-
-    console.log('✅ Order deleted successfully:', invoiceId)
-
-    return NextResponse.json({
-      success: true,
-      message: "Order deleted successfully",
-      data: { invoice_id: invoiceId }
-    }, { status: 200 })
-
-  } catch (error) {
-    console.error("❌ Error deleting order:", error)
-    return NextResponse.json({ 
-      success: false,
-      error: "Failed to delete order",
-      message: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 })
+        error: 'Failed to update order status',
+        message: error instanceof Error ? error.message : 'Unknown error occurred'
+      },
+      { status: 500 }
+    );
   }
 }

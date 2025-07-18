@@ -1,484 +1,298 @@
-// app/api/generate-promotions/route.ts - Fixed version
-import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/lib/db';
-import { callGroqLLM } from '@/lib/utils';
+// app/api/generate-promotions/route.ts - Fixed Version
+import { NextRequest, NextResponse } from 'next/server'
+import { query } from '@/lib/db'
 
-interface SalesAnalytics {
-  totalSales: number;
-  totalOrders: number;
-  avgOrderValue: number;
-  topSellingItems: string[];
-  slowMovingItems: string[];
-  peakHours: string[];
-  lowTrafficHours: string[];
-  weekendVsWeekday: number;
-  monthlyTrend: number;
-}
-
-interface PromoRecommendation {
+// Types
+interface PromotionRecommendation {
   type: string;
   description: string;
   reasoning: string;
   estimatedImpact: string;
-  targetMetric: string;
-  duration: string;
-  difficulty: 'Easy' | 'Medium' | 'Hard';
   details: string;
+  targetSegment: string;
+  duration: string;
+  discountPercent?: number;
+  expectedUplift?: number;
 }
 
-// Get sales analytics data for a specific restaurant or all restaurants
-async function getSalesAnalytics(restaurantId?: number): Promise<SalesAnalytics> {
+// Helper function to safely convert to number
+function safeNumber(value: any): number {
+  if (value === null || value === undefined) return 0;
+  const num = typeof value === 'string' ? parseFloat(value) : Number(value);
+  return isNaN(num) ? 0 : num;
+}
+
+// Generate data-driven promotion recommendations
+async function generateDataDrivenPromotions(restaurantId: string): Promise<PromotionRecommendation[]> {
   try {
-    // Base query filters
-    let whereClause = '';
-    let queryParams: any[] = [];
-    
-    if (restaurantId) {
-      whereClause = 'WHERE c.id_restaurant = ?';
-      queryParams.push(restaurantId);
-    }
-    
-    // Total sales and orders
-    const totalSalesQuery = `
+    console.log('🎯 Generating data-driven promotion recommendations...');
+
+    // Get restaurant performance data
+    const performanceSQL = `
       SELECT 
-        COUNT(*) as total_orders,
-        SUM(Harga_Total) as total_sales,
-        AVG(Harga_Total) as avg_order_value
-      FROM Customer c 
-      ${whereClause}
+        COUNT(DISTINCT c.Invoice_Id) as total_orders,
+        SUM(c.Harga_Total) as total_revenue,
+        AVG(c.Harga_Total) as avg_order_value,
+        COUNT(DISTINCT DATE(c.Tanggal_Order)) as active_days,
+        
+        -- Recent performance
+        COUNT(DISTINCT CASE WHEN c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) THEN c.Invoice_Id END) as recent_orders,
+        SUM(CASE WHEN c.Tanggal_Order >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) THEN c.Harga_Total ELSE 0 END) as recent_revenue,
+        
+        -- Day patterns
+        AVG(CASE WHEN DAYOFWEEK(c.Tanggal_Order) IN (1,7) THEN c.Harga_Total ELSE NULL END) as weekend_avg,
+        AVG(CASE WHEN DAYOFWEEK(c.Tanggal_Order) BETWEEN 2 AND 6 THEN c.Harga_Total ELSE NULL END) as weekday_avg
+        
+      FROM Customer c
+      WHERE c.id_restaurant = ?
     `;
-    
-    const salesResult = await query(totalSalesQuery, queryParams);
-    const salesData = salesResult[0];
-    
-    // Top selling menu items
-    const topItemsQuery = `
-      SELECT m.Nama_Menu, COUNT(*) as order_count
-      FROM MEMESAN_MENU mm
-      JOIN menu m ON mm.id_menu = m.Id_Menu
-      JOIN Customer c ON mm.id_customer = c.Invoice_Id
-      ${whereClause}
-      GROUP BY m.Id_Menu, m.Nama_Menu
-      ORDER BY order_count DESC
-      LIMIT 5
-    `;
-    
-    const topItems = await query(topItemsQuery, queryParams);
-    
-    // Menu items with low sales
-    const slowItemsQuery = `
-      SELECT m.Nama_Menu, COUNT(*) as order_count
+
+    const menuAnalysisSQL = `
+      SELECT 
+        m.Nama_Menu,
+        m.Kategori,
+        m.Harga,
+        COALESCE(
+          (SELECT SUM(mm.kuantitas) FROM MEMESAN_MENU mm WHERE mm.id_menu = m.Id_Menu), 0
+        ) + COALESCE(
+          (SELECT SUM(mp.kuantitas) FROM MEMESAN_PAKET mp WHERE mp.id_menu = m.Id_Menu), 0
+        ) as total_sold
       FROM menu m
-      LEFT JOIN MEMESAN_MENU mm ON m.Id_Menu = mm.id_menu
-      LEFT JOIN Customer c ON mm.id_customer = c.Invoice_Id
-      ${restaurantId ? 'WHERE m.id_restaurant = ?' : ''}
-      GROUP BY m.Id_Menu, m.Nama_Menu
-      HAVING order_count <= 5 OR order_count IS NULL
-      ORDER BY order_count ASC
-      LIMIT 5
+      WHERE m.id_restaurant = ?
+      ORDER BY total_sold DESC
+      LIMIT 10
     `;
-    
-    const slowItems = await query(slowItemsQuery, restaurantId ? [restaurantId] : []);
-    
-    return {
-      totalSales: Number(salesData.total_sales) || 0,
-      totalOrders: Number(salesData.total_orders) || 0,
-      avgOrderValue: Number(salesData.avg_order_value) || 0,
-      topSellingItems: topItems.map((item: any) => item.Nama_Menu),
-      slowMovingItems: slowItems.map((item: any) => item.Nama_Menu),
-      peakHours: ['12:00-13:00', '19:00-20:00'], // Default peak hours
-      lowTrafficHours: ['14:00-17:00', '21:00-22:00'], // Default low traffic hours
-      weekendVsWeekday: 1.2, // 20% higher on weekends
-      monthlyTrend: 0.05 // 5% monthly growth
-    };
+
+    const [performance] = await query(performanceSQL, [restaurantId]);
+    const menuAnalysis = await query(menuAnalysisSQL, [restaurantId]);
+
+    const totalOrders = safeNumber(performance?.total_orders);
+    const totalRevenue = safeNumber(performance?.total_revenue);
+    const avgOrderValue = safeNumber(performance?.avg_order_value);
+    const recentOrders = safeNumber(performance?.recent_orders);
+    const weekendAvg = safeNumber(performance?.weekend_avg);
+    const weekdayAvg = safeNumber(performance?.weekday_avg);
+
+    const topItems = menuAnalysis.slice(0, 3);
+    const underperformingItems = menuAnalysis.slice(-3).reverse();
+
+    // Generate data-driven promotion recommendations
+    const promotions: PromotionRecommendation[] = [];
+
+    // 1. Bundle Promotion (if there are top and underperforming items)
+    if (topItems.length > 0 && underperformingItems.length > 0) {
+      promotions.push({
+        type: "Bundle Deal",
+        description: `Paket Hemat: ${topItems[0]?.Nama_Menu} + ${underperformingItems[0]?.Nama_Menu} dengan diskon 25%`,
+        reasoning: `Menggabungkan item populer (${topItems[0]?.Nama_Menu} - ${safeNumber(topItems[0]?.total_sold)} terjual) dengan item yang kurang laku (${underperformingItems[0]?.Nama_Menu} - ${safeNumber(underperformingItems[0]?.total_sold)} terjual)`,
+        estimatedImpact: "20-30% peningkatan penjualan item underperforming, 15% peningkatan order value",
+        details: "Kombinasi strategis untuk meningkatkan penjualan menu yang jarang dipesan dengan memanfaatkan popularitas menu favorit",
+        targetSegment: "Customer yang suka mencoba menu baru dengan harga hemat",
+        duration: "2 minggu",
+        discountPercent: 25,
+        expectedUplift: 25
+      });
+    }
+
+    // 2. Time-based promotion (if weekday sales are lower)
+    if (weekdayAvg > 0 && weekendAvg > weekdayAvg * 1.2) {
+      promotions.push({
+        type: "Happy Hour Weekday",
+        description: "Diskon 20% untuk semua pemesanan Senin-Kamis jam 14:00-17:00",
+        reasoning: `Penjualan weekday (${weekdayAvg.toLocaleString('id-ID')} IDR rata-rata) lebih rendah dari weekend (${weekendAvg.toLocaleString('id-ID')} IDR). Perlu dorongan di jam sepi.`,
+        estimatedImpact: "30-40% peningkatan order di jam sepi weekday",
+        details: "Target jam 14:00-17:00 ketika kitchen tidak terlalu sibuk, memaksimalkan utilisasi kapasitas",
+        targetSegment: "Pekerja kantoran, customer fleksibel waktu",
+        duration: "1 bulan trial",
+        discountPercent: 20,
+        expectedUplift: 35
+      });
+    }
+
+    // 3. Loyalty program (if there are repeat customers)
+    if (totalOrders > 50) {
+      promotions.push({
+        type: "Program Loyalitas",
+        description: "Beli 8 kali, dapatkan 1 gratis + member card privilege",
+        reasoning: `Dengan ${totalOrders} total pesanan dan rata-rata ${avgOrderValue.toLocaleString('id-ID')} IDR per order, customer menunjukkan potensi repeat purchase`,
+        estimatedImpact: "40% peningkatan customer retention, 25% peningkatan frequency",
+        details: "Digital stamp card dengan bonus: priority seating, birthday discount 50%, early access menu baru",
+        targetSegment: "Regular customer dan potential repeat customer",
+        duration: "Program permanen",
+        discountPercent: 12.5,
+        expectedUplift: 30
+      });
+    }
+
+    // 4. New customer acquisition
+    promotions.push({
+      type: "Welcome Offer",
+      description: "Diskon 30% + appetizer gratis untuk customer pertama kali",
+      reasoning: `Program akuisisi customer baru. Total ${recentOrders} pesanan bulan ini menunjukkan perlu ekspansi customer base`,
+      estimatedImpact: "60-80% konversi trial, 30% menjadi repeat customer",
+      details: "Verifikasi nomor HP untuk memastikan customer baru. Limit 1x per customer. Include social media follow incentive",
+      targetSegment: "Customer baru, referral dari existing customer",
+      duration: "3 bulan campaign",
+      discountPercent: 30,
+      expectedUplift: 45
+    });
+
+    // 5. Category boost (focus on popular category)
+    if (menuAnalysis.length > 0) {
+      const categories = menuAnalysis.reduce((acc: any, item: any) => {
+        const cat = item.Kategori || 'Lainnya';
+        acc[cat] = (acc[cat] || 0) + safeNumber(item.total_sold);
+        return acc;
+      }, {});
+
+      const topCategory = Object.keys(categories).reduce((a, b) => 
+        categories[a] > categories[b] ? a : b
+      );
+
+      promotions.push({
+        type: "Category Special",
+        description: `Festival ${topCategory}: Beli 2 item kategori ${topCategory}, dapatkan diskon 15%`,
+        reasoning: `Kategori ${topCategory} paling populer dengan total ${categories[topCategory]} item terjual. Leverage strength untuk cross-selling`,
+        estimatedImpact: "25% peningkatan average items per order, 20% revenue boost",
+        details: `Focus pada kategori terkuat untuk mendorong multiple item purchase. Highlight menu ${topCategory} terbaik`,
+        targetSegment: "Customer yang sudah familiar dengan kategori ini",
+        duration: "2 minggu intensive campaign",
+        discountPercent: 15,
+        expectedUplift: 22
+      });
+    }
+
+    // 6. Seasonal/Event promotion
+    const currentMonth = new Date().getMonth() + 1;
+    let seasonalTheme = "";
+    let seasonalReason = "";
+
+    if (currentMonth >= 6 && currentMonth <= 8) {
+      seasonalTheme = "Ramadan & Lebaran";
+      seasonalReason = "Momentum buka puasa dan perayaan Lebaran";
+    } else if (currentMonth >= 11 || currentMonth <= 1) {
+      seasonalTheme = "Tahun Baru";
+      seasonalReason = "Semangat tahun baru dan libur panjang";
+    } else {
+      seasonalTheme = "Mid Year Special";
+      seasonalReason = "Momentum tengah tahun untuk refresh menu experience";
+    }
+
+    promotions.push({
+      type: "Seasonal Campaign",
+      description: `${seasonalTheme} Special: Menu spesial + paket keluarga diskon 20%`,
+      reasoning: `${seasonalReason}. Historical data menunjukkan peningkatan demand saat periode ini`,
+      estimatedImpact: "35% peningkatan traffic, 40% peningkatan group orders",
+      details: "Limited time menu, family package (4-6 porsi), special decoration, social media campaign",
+      targetSegment: "Keluarga, group dining, celebration customers",
+      duration: "Selama periode seasonal (3-4 minggu)",
+      discountPercent: 20,
+      expectedUplift: 38
+    });
+
+    console.log(`✅ Generated ${promotions.length} data-driven promotion recommendations`);
+    return promotions;
+
   } catch (error) {
-    console.error('Error getting sales analytics:', error);
-    return {
-      totalSales: 0,
-      totalOrders: 0,
-      avgOrderValue: 0,
-      topSellingItems: [],
-      slowMovingItems: [],
-      peakHours: [],
-      lowTrafficHours: [],
-      weekendVsWeekday: 1.0,
-      monthlyTrend: 0.0
-    };
-  }
-}
-
-// Generate AI-powered promotion recommendations with better error handling
-async function generateAIPromoRecommendations(analytics: SalesAnalytics): Promise<PromoRecommendation[]> {
-  try {
-    // Check if GROQ API key is available
-    if (!process.env.GROQ_API_KEY) {
-      console.log('⚠️ GROQ_API_KEY not found, skipping AI generation');
-      throw new Error('GROQ_API_KEY not configured');
-    }
-
-    const prompt = `Based on comprehensive restaurant sales analytics, generate 3-5 strategic promotional recommendations:
-
-SALES ANALYTICS:
-- Total Sales: ${analytics.totalSales.toLocaleString()} IDR
-- Total Orders: ${analytics.totalOrders.toLocaleString()}
-- Average Order Value: ${analytics.avgOrderValue.toLocaleString()} IDR
-- Top Selling Items: ${analytics.topSellingItems.join(', ')}
-- Slow Moving Items: ${analytics.slowMovingItems.join(', ')}
-- Peak Hours: ${analytics.peakHours.join(', ')}
-- Low Traffic Hours: ${analytics.lowTrafficHours.join(', ')}
-- Weekend vs Weekday Performance: ${(analytics.weekendVsWeekday * 100).toFixed(1)}%
-- Monthly Growth Trend: ${(analytics.monthlyTrend * 100).toFixed(1)}%
-
-Generate strategic promotions that:
-1. Drive revenue growth for Indonesian restaurants
-2. Optimize underperforming time slots
-3. Increase customer retention
-4. Boost average order value
-5. Move slow-selling inventory
-
-Return ONLY a valid JSON array:
-[
-  {
-    "type": "Promotion Name",
-    "description": "Clear description of the promotion",
-    "reasoning": "Data-driven explanation why this promotion will work",
-    "estimatedImpact": "Specific impact estimate (e.g., 15-20% increase)",
-    "targetMetric": "Primary metric to improve",
-    "duration": "Recommended duration",
-    "difficulty": "Easy|Medium|Hard",
-    "details": "Implementation specifics"
-  }
-]
-
-Focus on realistic, implementable promotions for Indonesian market preferences.`;
-
-    console.log('🤖 Calling AI for promotion recommendations...');
+    console.error('❌ Error generating promotions:', error);
     
-    // Direct API call to Groq instead of using callGroqLLM
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'llama3-8b-8192',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an AI expert in restaurant business analytics and promotional strategies. Always respond in valid JSON format.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        max_tokens: 2048,
-        temperature: 0.3,
-        stream: false
-      })
-    });
-
-    if (!response.ok) {
-      console.error('❌ Groq API error:', response.status, response.statusText);
-      throw new Error(`Groq API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-      console.error('❌ Invalid Groq API response format');
-      throw new Error('Invalid response format from Groq API');
-    }
-
-    const aiResponse = data.choices[0].message.content;
-    
-    if (!aiResponse || aiResponse.trim() === '') {
-      console.log('⚠️ Empty AI response, throwing error to trigger fallback');
-      throw new Error('Empty AI response');
-    }
-    
-    console.log('🤖 AI Response received, length:', aiResponse.length);
-    console.log('🤖 AI Response preview:', aiResponse.substring(0, 200));
-    
-    // Clean and parse JSON response with better error handling
-    let cleanedContent = aiResponse.trim();
-    
-    // Remove markdown code blocks if present
-    cleanedContent = cleanedContent.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-    
-    // Find JSON array boundaries
-    const jsonStart = cleanedContent.indexOf('[');
-    const jsonEnd = cleanedContent.lastIndexOf(']') + 1;
-    
-    if (jsonStart === -1 || jsonEnd <= 0) {
-      console.log('⚠️ No valid JSON array found, throwing error to trigger fallback');
-      throw new Error('No valid JSON array found in AI response');
-    }
-    
-    const jsonString = cleanedContent.substring(jsonStart, jsonEnd);
-    
-    // Validate JSON before parsing
-    if (!jsonString.trim().startsWith('[') || !jsonString.trim().endsWith(']')) {
-      console.log('⚠️ Invalid JSON array format, throwing error to trigger fallback');
-      throw new Error('Invalid JSON array format');
-    }
-    
-    console.log('📝 Attempting to parse JSON string of length:', jsonString.length);
-    
-    let promos;
-    try {
-      promos = JSON.parse(jsonString);
-    } catch (parseError) {
-      console.log('⚠️ JSON parsing failed:', parseError);
-      throw new Error('Failed to parse JSON response');
-    }
-    
-    if (!Array.isArray(promos)) {
-      console.log('⚠️ Parsed result is not an array, throwing error to trigger fallback');
-      throw new Error('Parsed result is not an array');
-    }
-    
-    console.log('✅ Successfully parsed AI recommendations:', promos.length);
-    
-    // Validate and format recommendations
-    const validatedPromos = promos.map((promo: any) => ({
-      type: promo.type || 'Custom Promotion',
-      description: promo.description || 'Strategic promotional offer',
-      reasoning: promo.reasoning || 'Based on sales data analysis',
-      estimatedImpact: promo.estimatedImpact || promo.impact || '10-15% improvement',
-      targetMetric: promo.targetMetric || promo.target || 'Sales Growth',
-      duration: promo.duration || '2-4 weeks',
-      difficulty: ['Easy', 'Medium', 'Hard'].includes(promo.difficulty) ? promo.difficulty : 'Medium',
-      details: promo.details || 'Contact management for implementation details'
-    }));
-
-    console.log('✅ AI recommendations validated and formatted');
-    return validatedPromos;
-    
-  } catch (error) {
-    console.error('❌ Error generating AI promotion recommendations:', error);
-    throw error;
-  }
-}
-
-// Generate fallback promotion recommendations
-function generateFallbackPromos(analytics: SalesAnalytics): PromoRecommendation[] {
-  const fallbackPromos: PromoRecommendation[] = [
-    {
-      type: "Happy Hour Special",
-      description: "25% discount during low-traffic hours to boost sales",
-      reasoning: `Based on traffic analysis, ${analytics.lowTrafficHours.join(' and ')} show lower activity. This promotion can optimize these time slots.`,
-      estimatedImpact: "30-40% increase in off-peak orders",
-      targetMetric: "Order Volume",
-      duration: "1-2 months",
-      difficulty: "Easy",
-      details: "Apply 25% discount during specified hours. Track hourly performance."
-    },
-    {
-      type: "Bundle Deal Promotion",
-      description: "Combo packages featuring top-selling items with complementary products",
-      reasoning: `Top sellers (${analytics.topSellingItems.slice(0, 2).join(', ')}) can be bundled to increase average order value from ${analytics.avgOrderValue.toLocaleString()} IDR.`,
-      estimatedImpact: "15-25% increase in average order value",
-      targetMetric: "Average Order Value",
-      duration: "3-4 weeks",
-      difficulty: "Medium",
-      details: "Create 3-4 bundle options with 10-15% discount vs individual prices."
-    },
-    {
-      type: "Slow Item Clearance",
-      description: "Special promotion for underperforming menu items",
-      reasoning: `Items like ${analytics.slowMovingItems.slice(0, 2).join(', ')} need inventory movement. Strategic promotion can reduce waste and discover customer preferences.`,
-      estimatedImpact: "50-100% increase in slow item sales",
-      targetMetric: "Inventory Turnover",
-      duration: "2-3 weeks",
-      difficulty: "Easy",
-      details: "30-40% discount on slow items. Consider pairing with popular items."
-    }
-  ];
-
-  // Add weekend promotion if weekend performance is good
-  if (analytics.weekendVsWeekday > 1.1) {
-    fallbackPromos.push({
-      type: "Weekend Family Special",
-      description: "Family packages for weekend diners",
-      reasoning: `Weekend performance is ${((analytics.weekendVsWeekday - 1) * 100).toFixed(1)}% higher than weekdays. Family promotions can capitalize on this trend.`,
-      estimatedImpact: "20-30% increase in weekend family orders",
-      targetMetric: "Weekend Sales",
-      duration: "4-6 weeks",
-      difficulty: "Medium",
-      details: "Family packages for 4+ people with 15% discount and free kids meal."
-    });
-  }
-
-  // Add loyalty program if customer retention is needed
-  if (analytics.totalOrders > 100) {
-    fallbackPromos.push({
-      type: "Loyalty Rewards Program",
-      description: "Point-based rewards system for repeat customers",
-      reasoning: `With ${analytics.totalOrders} total orders, a loyalty program can improve customer retention and lifetime value.`,
-      estimatedImpact: "25-40% improvement in customer retention",
-      targetMetric: "Customer Retention",
-      duration: "Ongoing program",
-      difficulty: "Hard",
-      details: "Points system: 1 point per 1000 IDR spent. Redeem for discounts or free items."
-    });
-  }
-
-  return fallbackPromos;
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { restaurantId } = body;
-
-    console.log('🚀 Starting comprehensive promotion recommendations generation...');
-
-    // Get sales analytics
-    const analytics = await getSalesAnalytics(restaurantId);
-    
-    console.log('📊 Sales analytics retrieved:', {
-      totalSales: analytics.totalSales,
-      totalOrders: analytics.totalOrders,
-      avgOrderValue: analytics.avgOrderValue,
-      topItemsCount: analytics.topSellingItems.length,
-      slowItemsCount: analytics.slowMovingItems.length
-    });
-
-    let aiPromos: PromoRecommendation[] = [];
-    let generationMethod = 'fallback';
-
-    // Try AI generation first, with proper error handling
-    try {
-      console.log('🤖 Attempting AI promotion generation...');
-      aiPromos = await generateAIPromoRecommendations(analytics);
-      generationMethod = 'ai';
-      console.log('✅ AI promotion recommendations generated successfully:', aiPromos.length);
-    } catch (aiError) {
-      console.log('⚠️ AI generation failed, using fallback method. Error:', aiError);
-      
-      // Log specific error details for debugging
-      if (aiError instanceof Error) {
-        console.log('⚠️ AI Error details:', {
-          message: aiError.message,
-          stack: aiError.stack?.substring(0, 200)
-        });
+    // Fallback promotions
+    return [
+      {
+        type: "Basic Discount",
+        description: "Diskon 15% untuk semua menu",
+        reasoning: "Promosi standar untuk meningkatkan traffic",
+        estimatedImpact: "Peningkatan moderate di penjualan",
+        details: "Promosi umum tanpa target spesifik",
+        targetSegment: "Semua customer",
+        duration: "1 minggu",
+        discountPercent: 15,
+        expectedUplift: 15
       }
-      
-      aiPromos = [];
+    ];
+  }
+}
+
+// POST endpoint for generating promotions
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  try {
+    let body;
+    try {
+      const textBody = await request.text();
+      if (!textBody.trim()) {
+        body = { restaurant_id: '1' }; // Default body if empty
+      } else {
+        body = JSON.parse(textBody);
+      }
+    } catch (parseError) {
+      console.log('⚠️ JSON parse error, using default body');
+      body = { restaurant_id: '1' };
     }
 
-    // Use fallback if AI fails or returns empty
-    if (aiPromos.length === 0) {
-      console.log('📋 Using fallback promotion recommendations');
-      aiPromos = generateFallbackPromos(analytics);
-      generationMethod = 'fallback';
-    }
+    const { restaurant_id = '1' } = body;
 
-    // Ensure we have at least 3 recommendations
-    if (aiPromos.length < 3) {
-      console.log('📋 Supplementing with additional fallback recommendations');
-      const fallbackPromos = generateFallbackPromos(analytics);
-      const additionalNeeded = 3 - aiPromos.length;
-      aiPromos = [...aiPromos, ...fallbackPromos.slice(0, additionalNeeded)];
-    }
+    console.log('🎯 Generating promotion recommendations for restaurant:', restaurant_id);
 
-    // Remove duplicates by type
-    const uniquePromos = aiPromos.filter((promo, index, self) => 
-      index === self.findIndex(p => p.type === promo.type)
-    );
+    const promotions = await generateDataDrivenPromotions(restaurant_id);
+
+    // Calculate summary metrics
+    const avgDiscount = promotions.reduce((sum, p) => sum + (p.discountPercent || 0), 0) / promotions.length;
+    const avgUplift = promotions.reduce((sum, p) => sum + (p.expectedUplift || 0), 0) / promotions.length;
 
     const response = {
       success: true,
-      recommendations: uniquePromos,
-      analytics: {
-        totalSales: analytics.totalSales,
-        totalOrders: analytics.totalOrders,
-        avgOrderValue: analytics.avgOrderValue,
-        topSellingItems: analytics.topSellingItems,
-        slowMovingItems: analytics.slowMovingItems
+      data: {
+        promotions: promotions,
+        summary: {
+          totalPromotions: promotions.length,
+          avgDiscountPercent: Math.round(avgDiscount),
+          avgExpectedUplift: Math.round(avgUplift),
+          categories: [...new Set(promotions.map(p => p.type))],
+          recommendedDuration: "2-4 minggu untuk hasil optimal"
+        },
+        recommendations: [
+          "Implementasikan 2-3 promosi secara bersamaan untuk maksimal impact",
+          "Monitor performance setiap minggu dan adjust strategy",
+          "Kombinasikan dengan social media campaign untuk exposure maksimal",
+          "Track customer feedback untuk improvement berkelanjutan"
+        ]
       },
       metadata: {
-        generationMethod: generationMethod,
-        recommendationCount: uniquePromos.length,
-        dataSource: restaurantId ? `restaurant_${restaurantId}` : 'all_restaurants',
-        timestamp: new Date().toISOString(),
-        confidence: generationMethod === 'ai' ? 'High' : 'Medium',
-        note: generationMethod === 'ai' ? 'AI-powered recommendations' : 'Rule-based recommendations for consistent performance'
+        restaurant_id: restaurant_id,
+        generated_at: new Date().toISOString(),
+        data_source: 'database_analysis',
+        analysis_method: 'data_driven_recommendations'
       }
     };
-    
-    console.log('✅ Promo recommendations generated successfully');
-    console.log('📊 Final response:', {
-      success: response.success,
-      recommendationCount: response.recommendations.length,
-      method: response.metadata.generationMethod
-    });
-    
+
+    console.log(`✅ Generated ${promotions.length} promotion recommendations successfully`);
     return NextResponse.json(response);
-    
+
   } catch (error) {
     console.error('❌ Error in promo recommendations API:', error);
-    
-    // Log detailed error information
-    if (error instanceof Error) {
-      console.error('❌ Error details:', {
-        message: error.message,
-        stack: error.stack?.substring(0, 500),
-        name: error.name
-      });
-    }
-    
-    // Emergency fallback recommendations
-    const emergencyPromos: PromoRecommendation[] = [
-      {
-        type: "Flash Sale",
-        description: "Limited time 20% discount on all items",
-        reasoning: "Quick boost to sales volume during slow periods",
-        estimatedImpact: "15-25% increase in sales",
-        targetMetric: "Sales Volume",
-        duration: "1-2 days",
-        difficulty: "Easy",
-        details: "Apply 20% discount for 24-48 hours. Promote via social media."
-      },
-      {
-        type: "Buy One Get One",
-        description: "BOGO promotion on selected menu items",
-        reasoning: "Increase customer satisfaction and order quantity",
-        estimatedImpact: "20-30% increase in item sales",
-        targetMetric: "Order Quantity",
-        duration: "1 week",
-        difficulty: "Medium",
-        details: "Select 3-5 items for BOGO. Track inventory levels."
-      },
-      {
-        type: "New Customer Discount",
-        description: "Special discount for first-time customers",
-        reasoning: "Attract new customers and expand customer base",
-        estimatedImpact: "10-20% increase in new customers",
-        targetMetric: "Customer Acquisition",
-        duration: "Ongoing",
-        difficulty: "Easy",
-        details: "15% discount for verified new customers. Require sign-up."
-      }
-    ];
+    console.error('❌ Error details:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : 'No stack trace',
+      name: error instanceof Error ? error.name : 'Unknown'
+    });
     
     return NextResponse.json(
       {
-        success: true, // Return success even in emergency fallback
-        error: 'Used emergency fallback recommendations',
-        message: 'System automatically provided backup recommendations',
-        recommendations: emergencyPromos,
-        metadata: {
-          generationMethod: 'emergency_fallback',
-          errorHandling: true,
-          timestamp: new Date().toISOString(),
-          confidence: 'Medium',
-          originalError: error instanceof Error ? error.message : 'Unknown error'
+        success: false,
+        error: 'Failed to generate promotion recommendations',
+        message: error instanceof Error ? error.message : 'Unknown error occurred',
+        data: {
+          promotions: [],
+          summary: {
+            totalPromotions: 0,
+            avgDiscountPercent: 0,
+            avgExpectedUplift: 0,
+            categories: [],
+            recommendedDuration: "Unknown"
+          }
         }
       },
-      { status: 200 } // Return 200 instead of 500
+      { status: 500 }
     );
   }
 }

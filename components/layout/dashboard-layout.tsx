@@ -83,7 +83,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                 Dashboard
               </Link>
             </li>
-            <li>
+            {/* <li>
               <Link
                 href="/dashboard/orders"
                 className={`flex items-center p-2 rounded-lg ${title === "Orders Management" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
@@ -91,7 +91,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                 <ClipboardList className="mr-3 h-5 w-5" />
                 Orders
               </Link>
-            </li>
+            </li> */}
             <li>
               <Link
                 href="/dashboard/menu"
@@ -111,7 +111,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
               </Link>
             </li>
             <li>
-              <Link
+              {/* <Link
                 href="/dashboard/transactions"
                 className={`flex items-center p-2 rounded-lg ${title === "Transactions" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
               >
@@ -119,13 +119,13 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                 Transactions
               </Link>
             </li>
-            <li>
+            <li> */}
               <Link
                 href="/dashboard/sales-report"
                 className={`flex items-center p-2 rounded-lg ${title === "Reports" ? "bg-navy-blue-700" : "hover:bg-navy-blue-700"}`}
               >
                 <TrendingUp className="mr-3 h-5 w-5" />
-                Reports
+                Sales Reports
               </Link>
             </li>
             <li>
