@@ -376,42 +376,6 @@ export default function DashboardPage() {
             </Card>
           )}
 
-          {/* Recent Orders */}
-          {dashboardData?.recentOrders && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Recent Orders</CardTitle>
-                <CardDescription>Latest customer orders</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {dashboardData.recentOrders.map((order) => (
-                    <div key={order.id} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                          <ShoppingCart className="h-4 w-4 text-green-600" />
-                        </div>
-                        <div>
-                          <div className="font-medium">Order #{order.id}</div>
-                          <div className="text-sm text-gray-500">
-                            {new Date(order.date).toLocaleDateString('id-ID')}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-bold text-navy-blue">
-                          {formatCurrency(order.total)}
-                        </div>
-                        {getStatusBadge(order.status)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-
         {/* Stock Alerts */}
         {dashboardData?.stockAlerts && dashboardData.stockAlerts.length > 0 && (
           <Card>
@@ -450,6 +414,9 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         )}
+        </div>
+
+
       </div>
     </DashboardLayout>
   )

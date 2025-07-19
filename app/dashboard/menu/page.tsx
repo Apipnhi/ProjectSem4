@@ -486,10 +486,10 @@ export default function MenuManagementPage() {
 
         {/* Main Content Tabs */}
         <Tabs defaultValue="menu-items" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="menu-items">Menu Items ({menuItems.length})</TabsTrigger>
             <TabsTrigger value="food-packs">Food Packs ({existingPacks.length + aiRecommendations.length})</TabsTrigger>
-            <TabsTrigger value="trends">Menu Trends</TabsTrigger>
+            {/* <TabsTrigger value="trends">Menu Trends</TabsTrigger> */}
           </TabsList>
 
           {/* Menu Items Tab Content */}
@@ -754,7 +754,7 @@ export default function MenuManagementPage() {
             </Card>
           </TabsContent>
 
-          {/* Menu Trends Tab Content */}
+          {/* Menu Trends Tab Content
           <TabsContent value="trends" className="space-y-4">
             <Card>
               <CardHeader>
@@ -790,7 +790,7 @@ export default function MenuManagementPage() {
                 {menuTrends && menuTrends.length > 0 ? (
                   <div className="space-y-6">
                     {/* Simple Summary Bar */}
-                    {trendSummary && (
+                    {/* {trendSummary && (
                       <div className="bg-gray-50 rounded-lg p-4">
                         <div className="flex justify-between items-center text-sm">
                           <span>Total: {trendSummary.totalTrends}</span>
@@ -800,9 +800,9 @@ export default function MenuManagementPage() {
                           <span className="text-purple-600">New: {trendSummary.newOpportunities}</span>
                         </div>
                       </div>
-                    )}
+                    )} */}
 
-                    {/* Simple Table Layout */}
+                    {/* Simple Table Layout
                     <div className="overflow-x-auto">
                       <table className="w-full border-collapse">
                         <thead>
@@ -862,9 +862,9 @@ export default function MenuManagementPage() {
                           ))}
                         </tbody>
                       </table>
-                    </div>
+                    </div> */}
 
-                    {/* Simple Recommendations */}
+                    {/* Simple Recommendations
                     <div className="mt-6">
                       <h4 className="font-semibold mb-3">Key Recommendations</h4>
                       <div className="space-y-2">
@@ -893,8 +893,8 @@ export default function MenuManagementPage() {
                 )}
               </CardContent>
             </Card>
-          </TabsContent>
-        </Tabs>
+          </TabsContent> */}
+        </Tabs> 
 
         {/* ============================================================================ */}
         {/* MODAL COMPONENTS */}
