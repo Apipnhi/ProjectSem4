@@ -73,8 +73,8 @@ async function generateLLMStockPredictions(stockData: ComprehensiveStockData[], 
   console.log('🔑 GROQ API Key found:', GROQ_API_KEY.substring(0, 10) + '...');
 
   // Limit data to prevent token overflow and ensure we have sales data
-  const limitedStockData = stockData.slice(0, 10); // Limit to 10 items
-  const limitedSalesData = salesData.length > 0 ? salesData.slice(0, 10) : [];
+  const limitedStockData = stockData.slice(0, stockData.length); // Limit to 10 items
+  const limitedSalesData = salesData.length > 0 ? salesData.slice(0, stockData.length) : [];
 
   // Create simplified context to avoid token limits
   const stockSummary = limitedStockData.map(item => 
