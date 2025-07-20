@@ -1,8 +1,8 @@
-// app/api/menu/food-packs/route.ts - Correct Implementation
+// app/api/menu/food-packs/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
-import { queryLLM } from '@/lib/llm';
 
+// Types
 interface MenuItem {
   Id_Menu: number;
   Nama_Menu: string;
@@ -16,7 +16,6 @@ interface FoodPackRecommendation {
   name: string;
   description: string;
   items: string[];
-  item_ids: number[];
   price: number;
   originalPrice: number;
   discountPercent: number;
@@ -27,19 +26,22 @@ interface FoodPackRecommendation {
   generated: boolean;
 }
 
+// Helper function
 function safeNumber(value: any): number {
   const num = typeof value === 'string' ? parseFloat(value) : Number(value);
   return isNaN(num) ? 0 : num;
 }
 
+// LLM-powered food pack generation using GROQ with retry mechanism
 async function generateDataDrivenFoodPacks(restaurantId: string): Promise<FoodPackRecommendation[]> {
   try {
     console.log('🤖 Generating AI-powered food pack recommendations...');
 
+    // Get all menu items for this restaurant
     const menuSQL = `
       SELECT Id_Menu, Nama_Menu, Harga, Kategori, Deskripsi
       FROM menu 
-      WHERE id_restaurant = ? AND Status = 1
+      WHERE id_restaurant = ?
       ORDER BY Kategori, Harga
     `;
 
@@ -51,6 +53,7 @@ async function generateDataDrivenFoodPacks(restaurantId: string): Promise<FoodPa
       return [];
     }
 
+    // Get sales data for popularity analysis
     const salesSQL = `
       SELECT 
         m.Id_Menu,
@@ -58,281 +61,349 @@ async function generateDataDrivenFoodPacks(restaurantId: string): Promise<FoodPa
         m.Kategori,
         m.Harga,
         COUNT(mm.id_menu) as order_count,
-        COALESCE(SUM(mm.kuantitas), COUNT(mm.id_menu)) as total_quantity,
-        COALESCE(SUM(mm.kuantitas * m.Harga), COUNT(mm.id_menu) * m.Harga) as total_revenue
+        COALESCE(SUM(mm.kuantitas), COUNT(mm.id_menu)) as total_quantity
       FROM menu m
       LEFT JOIN MEMESAN_MENU mm ON m.Id_Menu = mm.id_menu
       LEFT JOIN Customer c ON mm.id_customer = c.Invoice_Id
-      WHERE m.id_restaurant = ? AND m.Status = 1
+      WHERE m.id_restaurant = ?
       GROUP BY m.Id_Menu, m.Nama_Menu, m.Kategori, m.Harga
-      ORDER BY order_count DESC
+      ORDER BY total_quantity DESC, order_count DESC
     `;
 
     const salesResult = await query(salesSQL, [parseInt(restaurantId)]);
     const salesData = salesResult || [];
 
-    const menuSummary = menuItems.map(item => 
-      `${item.Nama_Menu} (${item.Kategori}) - Rp${item.Harga.toLocaleString()} - ${item.Deskripsi}`
-    ).join('\n');
+    console.log(`📊 Data retrieved: ${menuItems.length} menu items, ${salesData.length} sales records`);
 
-    const salesSummary = salesData.map((item: any) => 
-      `${item.Nama_Menu}: ${item.order_count} orders, ${item.total_quantity} quantity, Rp${(item.total_revenue || 0).toLocaleString()} revenue`
-    ).join('\n');
+    // Try LLM generation with retry mechanism
+    const llmPacks = await generateLLMFoodPacks(menuItems, salesData);
+    
+    if (llmPacks.length > 0) {
+      return llmPacks;
+    }
 
-    const prompt = `
-    Sebagai AI strategis untuk restoran, analisis data berikut dan buatkan 5-6 rekomendasi paket makanan yang strategis:
+    // Fallback to enhanced algorithmic generation
+    return generateEnhancedFallbackPacks(menuItems, salesData);
 
-    === DATA MENU ===
-    ${menuSummary}
+  } catch (error) {
+    console.error('❌ Error generating food packs:', error);
+    return generateBasicFallbackPacks();
+  }
+}
 
-    === DATA PENJUALAN & PERFORMA ===
-    ${salesSummary}
-
-    === FORMAT RESPONSE ===
-    Berikan response dalam format JSON array yang valid dengan struktur berikut:
-    [
-      {
-        "name": "Nama Paket yang Menarik",
-        "description": "Deskripsi singkat yang menarik (max 100 kata)",
-        "items": ["Nama Menu 1", "Nama Menu 2", "Nama Menu 3"],
-        "price": harga_paket_number,
-        "originalPrice": total_harga_asli_number,
-        "discountPercent": persentase_diskon_number,
-        "reasoning": "Analisis mengapa paket ini strategis (max 150 kata)",
-        "estimatedDemand": "High|Medium|Low",
-        "category": "kategori_paket"
-      }
-    ]
-
-    PENTING:
-    - Berikan minimal 5 paket dan maksimal 6 paket
-    - Harga paket harus 10-25% lebih murah dari harga asli
-    - Setiap paket minimal 2 item, maksimal 4 item
-    - Kombinasikan item dari kategori berbeda (makanan utama + minuman + snack/dessert)
-    - Response harus berupa JSON array yang valid, tidak ada teks tambahan
-    `;
-
-    const systemMessage = `Anda adalah AI strategis restoran yang ahli dalam analisis data penjualan dan optimasi menu.`;
-
-    const llmResponse = await queryLLM(prompt, systemMessage);
-    console.log('🤖 LLM Raw Response:', llmResponse);
-
-    let recommendations: any[] = [];
+// LLM generation with retry and error handling
+async function generateLLMFoodPacks(menuItems: MenuItem[], salesData: any[]): Promise<FoodPackRecommendation[]> {
+  const maxRetries = 3;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const jsonMatch = llmResponse.match(/\[[\s\S]*\]/);
-      const jsonString = jsonMatch ? jsonMatch[0] : llmResponse;
+      console.log(`🤖 LLM Query Attempt ${attempt}/${maxRetries}`);
       
-      recommendations = JSON.parse(jsonString);
-      console.log('✅ Successfully parsed LLM recommendations:', recommendations.length);
-    } catch (parseError) {
-      console.error('❌ Failed to parse LLM response, using fallback strategy');
-      recommendations = generateIntelligentFallbacks(menuItems, salesData);
-    }
+      const menuSummary = menuItems.map(item => 
+        `${item.Nama_Menu} (${item.Kategori}) - Rp${item.Harga}`
+      ).join(', ');
+      
+      const salesSummary = salesData.length > 0 
+        ? salesData.map(item => `${item.Nama_Menu}: ${item.total_quantity || 0} orders`).join(', ')
+        : 'No sales data available';
 
-    const processedPacks: FoodPackRecommendation[] = [];
-    
-    for (let i = 0; i < recommendations.length && i < 6; i++) {
-      const rec = recommendations[i];
-      
-      const itemIds: number[] = [];
-      const validItems: string[] = [];
-      
-      if (Array.isArray(rec.items)) {
-        for (const itemName of rec.items) {
-          const foundItem = menuItems.find(m => 
-            m.Nama_Menu.toLowerCase().includes(itemName.toLowerCase()) ||
-            itemName.toLowerCase().includes(m.Nama_Menu.toLowerCase())
-          );
-          
-          if (foundItem) {
-            itemIds.push(foundItem.Id_Menu);
-            validItems.push(foundItem.Nama_Menu);
-          }
+      const prompt = `Berdasarkan data menu dan penjualan restoran Indonesia berikut, buat 3-5 rekomendasi paket makanan yang strategis:
+
+MENU: ${menuSummary}
+SALES: ${salesSummary}
+
+Buat paket yang:
+1. Menggabungkan menu populer dengan kurang populer
+2. Memberikan value yang baik untuk customer
+3. Meningkatkan profit margin
+4. Sesuai selera Indonesia
+
+Response format JSON:
+[
+  {
+    "name": "nama paket",
+    "description": "deskripsi singkat",
+    "items": ["menu1", "menu2"],
+    "price": harga_number,
+    "originalPrice": harga_asli,
+    "discountPercent": persentase,
+    "reasoning": "alasan strategis",
+    "estimatedDemand": "High/Medium/Low"
+  }
+]`;
+
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'llama3-8b-8192', // Updated model
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a restaurant business strategist. Create profitable food pack recommendations in valid JSON format only.'
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          temperature: 0.7,
+          max_tokens: 1500
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ LLM query error (attempt ${attempt}): GROQ API error (${response.status}): ${errorText}`);
+        
+        if (attempt === maxRetries) {
+          throw new Error(`GROQ API error (${response.status}): ${errorText}`);
         }
+        continue;
       }
 
-      if (itemIds.length < 2) continue;
+      const data = await response.json();
+      const llmResponse = data.choices[0]?.message?.content;
 
-      const actualOriginalPrice = itemIds.reduce((sum, id) => {
-        const item = menuItems.find(m => m.Id_Menu === id);
-        return sum + (item ? item.Harga : 0);
-      }, 0);
+      if (!llmResponse) {
+        throw new Error('No response content from LLM');
+      }
 
-      const discountPercent = Math.max(10, Math.min(25, rec.discountPercent || 15));
-      const calculatedPrice = Math.round(actualOriginalPrice * (1 - discountPercent / 100));
+      console.log('🤖 LLM Raw Response:', llmResponse.substring(0, 500));
 
-      const pack: FoodPackRecommendation = {
-        id: `llm_pack_${i + 1}_${Date.now()}`,
-        name: rec.name || `Paket Spesial ${i + 1}`,
-        description: rec.description || 'Paket hemat pilihan terbaik',
-        items: validItems,
-        item_ids: itemIds,
-        price: calculatedPrice,
-        originalPrice: actualOriginalPrice,
-        discountPercent: discountPercent,
-        reasoning: rec.reasoning || 'Kombinasi strategis berdasarkan analisis data penjualan',
-        estimatedDemand: rec.estimatedDemand || 'Medium',
-        profitMargin: Math.round((calculatedPrice / actualOriginalPrice) * 100),
-        category: rec.category || 'Paket Kombinasi',
+      // Parse JSON response
+      let parsedPacks;
+      try {
+        // Try to extract JSON from response
+        const jsonMatch = llmResponse.match(/\[[\s\S]*\]/);
+        const jsonString = jsonMatch ? jsonMatch[0] : llmResponse;
+        parsedPacks = JSON.parse(jsonString);
+      } catch (parseError) {
+        console.error('❌ JSON parse error:', parseError);
+        if (attempt === maxRetries) {
+          break;
+        }
+        continue;
+      }
+
+      if (!Array.isArray(parsedPacks)) {
+        console.error('❌ LLM response is not an array');
+        if (attempt === maxRetries) {
+          break;
+        }
+        continue;
+      }
+
+      // Format and validate packs
+      const formattedPacks = parsedPacks.map((pack: any, index: number) => ({
+        id: `llm_pack_${Date.now()}_${index}`,
+        name: pack.name || `Paket AI ${index + 1}`,
+        description: pack.description || 'Paket makanan rekomendasi AI',
+        items: Array.isArray(pack.items) ? pack.items : ['Menu Pilihan'],
+        price: safeNumber(pack.price) || 25000,
+        originalPrice: safeNumber(pack.originalPrice) || 30000,
+        discountPercent: safeNumber(pack.discountPercent) || 15,
+        reasoning: pack.reasoning || 'Kombinasi menu yang strategis',
+        estimatedDemand: pack.estimatedDemand || 'Medium',
+        profitMargin: Math.round(((safeNumber(pack.originalPrice) - safeNumber(pack.price)) / safeNumber(pack.originalPrice)) * 100) || 20,
+        category: 'AI Generated',
         generated: true
-      };
+      }));
 
-      processedPacks.push(pack);
+      console.log(`✅ Successfully parsed LLM recommendations: ${formattedPacks.length}`);
+      return formattedPacks;
+
+    } catch (error) {
+      console.error(`❌ LLM query error (attempt ${attempt}):`, error);
+      
+      if (attempt === maxRetries) {
+        console.log('🔄 All attempts failed, using enhanced fallback');
+        break;
+      }
     }
-
-    console.log(`✅ Generated ${processedPacks.length} AI-powered food pack recommendations`);
-    return processedPacks;
-
-  } catch (error) {
-    console.error('❌ Error generating AI food packs:', error);
-    const menuResult = await query('SELECT Id_Menu, Nama_Menu, Harga, Kategori FROM menu WHERE id_restaurant = ? AND Status = 1 LIMIT 10', [parseInt(restaurantId)]);
-    return generateBasicFallbacks(menuResult || []);
   }
+
+  return [];
 }
 
-function generateIntelligentFallbacks(menuItems: MenuItem[], salesData: any[]): any[] {
-  const fallbacks = [];
+// Enhanced fallback generation using data-driven approach
+function generateEnhancedFallbackPacks(menuItems: MenuItem[], salesData: any[]): FoodPackRecommendation[] {
+  console.log('🔄 Generating enhanced fallback response...');
   
-  const topItems = salesData ? salesData.sort((a, b) => (b.order_count || 0) - (a.order_count || 0)).slice(0, 10) : [];
+  const packs: FoodPackRecommendation[] = [];
   
-  if (topItems.length >= 2) {
-    const bestSellers = topItems.slice(0, 3);
-    fallbacks.push({
-      name: "Paket Best Seller",
-      description: "Kombinasi menu terlaris yang paling disukai pelanggan",
-      items: bestSellers.map((item: any) => item.Nama_Menu),
-      price: Math.round(bestSellers.reduce((sum: number, item: any) => sum + (item.Harga || 0), 0) * 0.85),
-      originalPrice: bestSellers.reduce((sum: number, item: any) => sum + (item.Harga || 0), 0),
-      discountPercent: 15,
-      reasoning: "Paket ini menggabungkan item dengan penjualan tertinggi berdasarkan data historis",
-      estimatedDemand: "High",
-      category: "Best Seller"
-    });
-  }
-  
-  const mainCourse = menuItems.find(item => item.Kategori === 'Makanan Utama');
-  const drink = menuItems.find(item => item.Kategori === 'Minuman');
-  
-  if (mainCourse && drink) {
-    const items = [mainCourse, drink];
-    
-    fallbacks.push({
-      name: "Paket Hemat Lengkap",
-      description: "Paket lengkap dengan makanan utama dan minuman",
-      items: items.map(item => item.Nama_Menu),
-      price: Math.round(items.reduce((sum, item) => sum + (item.Harga || 0), 0) * 0.8),
-      originalPrice: items.reduce((sum, item) => sum + (item.Harga || 0), 0),
-      discountPercent: 20,
-      reasoning: "Kombinasi strategis lintas kategori untuk memberikan pengalaman makan lengkap",
-      estimatedDemand: "High",
-      category: "Value Pack"
-    });
-  }
-  
-  return fallbacks;
-}
+  // Sort menu items by category and price for better combinations
+  const sortedMenus = [...menuItems].sort((a, b) => {
+    if (a.Kategori !== b.Kategori) {
+      return a.Kategori.localeCompare(b.Kategori);
+    }
+    return a.Harga - b.Harga;
+  });
 
-function generateBasicFallbacks(menuItems: MenuItem[]): FoodPackRecommendation[] {
-  if (menuItems.length < 2) return [];
-  
-  const pack: FoodPackRecommendation = {
-    id: `fallback_${Date.now()}`,
-    name: "Paket Kombinasi Spesial",
-    description: "Paket hemat dengan kombinasi menu pilihan",
-    items: menuItems.slice(0, 3).map(item => item.Nama_Menu),
-    item_ids: menuItems.slice(0, 3).map(item => item.Id_Menu),
-    price: Math.round(menuItems.slice(0, 3).reduce((sum, item) => sum + item.Harga, 0) * 0.85),
-    originalPrice: menuItems.slice(0, 3).reduce((sum, item) => sum + item.Harga, 0),
-    discountPercent: 15,
-    reasoning: "Paket dasar berdasarkan menu yang tersedia",
-    estimatedDemand: "Medium",
-    profitMargin: 85,
-    category: "Paket Kombinasi",
-    generated: true
-  };
-  
-  return [pack];
-}
+  // Get different categories
+  const categories = [...new Set(menuItems.map(item => item.Kategori))];
+  const mainDishes = sortedMenus.filter(item => 
+    item.Kategori.toLowerCase().includes('makanan') || 
+    item.Kategori.toLowerCase().includes('utama')
+  );
+  const drinks = sortedMenus.filter(item => 
+    item.Kategori.toLowerCase().includes('minuman')
+  );
+  const snacks = sortedMenus.filter(item => 
+    item.Kategori.toLowerCase().includes('snack') || 
+    item.Kategori.toLowerCase().includes('dessert')
+  );
 
-async function getExistingFoodPacks(restaurantId: string): Promise<any[]> {
-  try {
-    const packsSQL = `
-      SELECT DISTINCT
-        p.id_paket as pack_id,
-        GROUP_CONCAT(m.Nama_Menu SEPARATOR ', ') as items,
-        GROUP_CONCAT(m.Id_Menu SEPARATOR ',') as item_ids,
-        SUM(m.Harga) as total_price,
-        COUNT(m.Id_Menu) as item_count,
-        GROUP_CONCAT(DISTINCT m.Kategori SEPARATOR ', ') as categories
-      FROM PAKET p
-      JOIN menu m ON p.id_menu = m.Id_Menu
-      WHERE p.id_restaurant = ? AND m.Status = 1
-      GROUP BY p.id_paket
-      ORDER BY p.id_paket
-    `;
+  // Pack 1: Basic combo (main + drink)
+  if (mainDishes.length > 0 && drinks.length > 0) {
+    const mainDish = mainDishes[0];
+    const drink = drinks[0];
+    const originalPrice = mainDish.Harga + drink.Harga;
+    const packPrice = Math.round(originalPrice * 0.9); // 10% discount
 
-    const result = await query(packsSQL, [parseInt(restaurantId)]);
-    
-    return (result || []).map((pack: any) => ({
-      id: `existing_pack_${pack.pack_id}`,
-      name: `Paket ${pack.pack_id}`,
-      description: `Paket kombinasi dengan ${pack.item_count} item`,
-      items: pack.items ? pack.items.split(', ') : [],
-      item_ids: pack.item_ids ? pack.item_ids.split(',').map((id: string) => parseInt(id)) : [],
-      price: Math.round((pack.total_price || 0) * 0.9),
-      originalPrice: pack.total_price || 0,
+    packs.push({
+      id: `fallback_basic_${Date.now()}`,
+      name: "Paket Hemat Spesial",
+      description: "Kombinasi strategis menu terpilih dengan harga hemat untuk meningkatkan nilai pembelian pelanggan",
+      items: [mainDish.Nama_Menu, drink.Nama_Menu],
+      price: packPrice,
+      originalPrice: originalPrice,
       discountPercent: 10,
-      reasoning: "Paket yang sudah tersedia di database",
-      estimatedDemand: "Medium",
-      profitMargin: 90,
-      category: pack.categories || "Mixed",
-      generated: false
-    }));
-  } catch (error) {
-    console.error('Error fetching existing packs:', error);
-    return [];
+      reasoning: "Paket ini menggabungkan makanan utama populer dengan minuman segar, memberikan value yang baik untuk pelanggan",
+      estimatedDemand: "High",
+      profitMargin: 25,
+      category: "Value Pack",
+      generated: true
+    });
   }
+
+  // Pack 2: Family pack (multiple mains)
+  if (mainDishes.length >= 2) {
+    const items = [mainDishes[0].Nama_Menu, mainDishes[1].Nama_Menu];
+    if (drinks.length > 0) items.push(drinks[0].Nama_Menu);
+    
+    const originalPrice = mainDishes[0].Harga + mainDishes[1].Harga + (drinks.length > 0 ? drinks[0].Harga : 0);
+    const packPrice = Math.round(originalPrice * 0.84); // 16% discount
+
+    packs.push({
+      id: `fallback_family_${Date.now()}`,
+      name: "Paket Keluarga",
+      description: "Paket lengkap untuk makan bersama keluarga dengan variasi menu",
+      items: items,
+      price: packPrice,
+      originalPrice: originalPrice,
+      discountPercent: 16,
+      reasoning: "Kombinasi yang pas untuk keluarga dengan porsi yang cukup dan rasa yang disukai semua kalangan",
+      estimatedDemand: "Medium",
+      profitMargin: 28,
+      category: "Family Pack",
+      generated: true
+    });
+  }
+
+  // Pack 3: Complete experience (main + drink + snack)
+  if (mainDishes.length > 0 && drinks.length > 0 && snacks.length > 0) {
+    const items = [mainDishes[0].Nama_Menu, drinks[0].Nama_Menu, snacks[0].Nama_Menu];
+    const originalPrice = mainDishes[0].Harga + drinks[0].Harga + snacks[0].Harga;
+    const packPrice = Math.round(originalPrice * 0.85); // 15% discount
+
+    packs.push({
+      id: `fallback_complete_${Date.now()}`,
+      name: "Paket Komplit",
+      description: "Paket lengkap dengan makanan utama, minuman, dan cemilan",
+      items: items,
+      price: packPrice,
+      originalPrice: originalPrice,
+      discountPercent: 15,
+      reasoning: "Paket all-in-one yang memberikan pengalaman makan lengkap dengan hemat",
+      estimatedDemand: "High",
+      profitMargin: 30,
+      category: "Complete Pack",
+      generated: true
+    });
+  }
+
+  console.log(`✅ Generated ${packs.length} enhanced fallback packs`);
+  return packs;
 }
 
-export async function GET(request: NextRequest) {
+// Basic fallback when everything else fails
+function generateBasicFallbackPacks(): FoodPackRecommendation[] {
+  return [{
+    id: `basic_fallback_${Date.now()}`,
+    name: "Paket Standar",
+    description: "Paket standar dengan menu pilihan restoran",
+    items: ["Menu Utama", "Minuman"],
+    price: 25000,
+    originalPrice: 30000,
+    discountPercent: 16,
+    reasoning: "Paket dasar yang selalu tersedia untuk pelanggan",
+    estimatedDemand: "Medium",
+    profitMargin: 25,
+    category: "Standard",
+    generated: false
+  }];
+}
+
+// GET endpoint for food pack recommendations
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const { searchParams } = new URL(request.url);
     const restaurantId = searchParams.get('restaurant_id') || '1';
-    const type = searchParams.get('type') || 'all';
+    const type = searchParams.get('type') || 'recommendations';
 
     console.log('🍽️ Fetching food pack recommendations:', { restaurantId, type });
 
-    let packs: FoodPackRecommendation[] = [];
+    const foodPacks = await generateDataDrivenFoodPacks(restaurantId);
 
-    if (type === 'recommendations' || type === 'all') {
-      const aiRecommendations = await generateDataDrivenFoodPacks(restaurantId);
-      packs = [...packs, ...aiRecommendations];
-    }
-
-    if (type === 'existing' || type === 'all') {
-      const existingPacks = await getExistingFoodPacks(restaurantId);
-      packs = [...packs, ...existingPacks];
-    }
-
-    console.log(`✅ Food pack recommendations generated: ${packs.length} packs`);
-
-    return NextResponse.json({
+    const response = {
       success: true,
       data: {
-        packs,
-        total: packs.length,
-        type,
+        packs: foodPacks,
+        summary: {
+          totalPacks: foodPacks.length,
+          generatedPacks: foodPacks.filter(p => p.generated).length,
+          existingPacks: foodPacks.filter(p => !p.generated).length,
+          avgDiscount: foodPacks.length > 0 
+            ? Math.round(foodPacks.reduce((sum, p) => sum + p.discountPercent, 0) / foodPacks.length)
+            : 0,
+          estimatedRevenue: foodPacks.reduce((sum, p) => sum + p.price, 0)
+        }
+      },
+      metadata: {
+        restaurant_id: parseInt(restaurantId),
+        generation_method: 'hybrid_llm_with_fallback',
+        includes_ai: true,
         generated_at: new Date().toISOString()
       }
-    });
+    };
+
+    console.log(`✅ Food pack recommendations generated: ${foodPacks.length} packs`);
+    return NextResponse.json(response);
 
   } catch (error) {
-    console.error('❌ Food packs API error:', error);
+    console.error('❌ Error in food pack recommendations:', error);
     
-    return NextResponse.json({
-      success: false,
-      error: 'Failed to generate food pack recommendations',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 });
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Failed to generate food pack recommendations',
+        message: error instanceof Error ? error.message : 'Unknown error occurred',
+        data: {
+          packs: [],
+          summary: {
+            totalPacks: 0,
+            generatedPacks: 0,
+            existingPacks: 0,
+            avgDiscount: 0,
+            estimatedRevenue: 0
+          }
+        }
+      },
+      { status: 500 }
+    );
   }
 }

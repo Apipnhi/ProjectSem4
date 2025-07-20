@@ -6,7 +6,7 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-// AI function for generating predictions using Groq
+// AI function for generating predictions using Groq with updated model
 export async function callGroqLLM(
   prompt: string, 
   maxTokens: number = 1024, 
@@ -33,7 +33,7 @@ export async function callGroqLLM(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'llama3-8b-8192', // or another available model
+        model: 'llama3-8b-8192', // Updated model
         messages: [
           {
             role: 'system',
@@ -133,12 +133,14 @@ export function formatDateTime(date: string | Date): string {
 // Calculate percentage change
 export function calculatePercentageChange(current: number, previous: number): number {
   if (previous === 0) return current > 0 ? 100 : 0;
-  return ((current - previous) / previous) * 100;
+  return Math.round(((current - previous) / previous) * 100);
 }
 
-// Generate random ID
-export function generateId(length: number = 8): string {
-  return Math.random().toString(36).substring(2, length + 2);
+// Generate safe ID
+export function generateId(prefix: string = ''): string {
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substr(2, 9);
+  return `${prefix}${timestamp}_${random}`;
 }
 
 // Debounce function
@@ -151,4 +153,92 @@ export function debounce<T extends (...args: any[]) => any>(
     clearTimeout(timeout);
     timeout = setTimeout(() => func(...args), wait);
   };
+}
+
+// Safe number conversion
+export function safeNumber(value: any, defaultValue: number = 0): number {
+  if (value === null || value === undefined || value === '') return defaultValue;
+  const num = typeof value === 'string' ? parseFloat(value) : Number(value);
+  return isNaN(num) ? defaultValue : num;
+}
+
+// Safe string conversion
+export function safeString(value: any, defaultValue: string = ''): string {
+  if (value === null || value === undefined) return defaultValue;
+  return String(value);
+}
+
+// Array chunk utility
+export function chunk<T>(array: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < array.length; i += size) {
+    chunks.push(array.slice(i, i + size));
+  }
+  return chunks;
+}
+
+// Deep clone utility
+export function deepClone<T>(obj: T): T {
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (obj instanceof Date) return new Date(obj.getTime()) as unknown as T;
+  if (obj instanceof Array) return obj.map(item => deepClone(item)) as unknown as T;
+  if (typeof obj === 'object') {
+    const cloned = {} as { [key: string]: any };
+    Object.keys(obj).forEach(key => {
+      cloned[key] = deepClone((obj as { [key: string]: any })[key]);
+    });
+    return cloned as T;
+  }
+  return obj;
+}
+
+// Generate random color
+export function generateRandomColor(): string {
+  const colors = [
+    '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
+    '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9'
+  ];
+  return colors[Math.floor(Math.random() * colors.length)];
+}
+
+// Truncate text
+export function truncateText(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  return text.substr(0, maxLength - 3) + '...';
+}
+
+// Validate email
+export function isValidEmail(email: string): boolean {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+}
+
+// Get time ago string
+export function getTimeAgo(date: Date | string): string {
+  const now = new Date();
+  const then = new Date(date);
+  const diffInSeconds = Math.floor((now.getTime() - then.getTime()) / 1000);
+
+  if (diffInSeconds < 60) return 'Baru saja';
+  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} menit yang lalu`;
+  if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} jam yang lalu`;
+  if (diffInSeconds < 2592000) return `${Math.floor(diffInSeconds / 86400)} hari yang lalu`;
+  if (diffInSeconds < 31536000) return `${Math.floor(diffInSeconds / 2592000)} bulan yang lalu`;
+  return `${Math.floor(diffInSeconds / 31536000)} tahun yang lalu`;
+}
+
+// Calculate business metrics
+export function calculateGrowthRate(current: number, previous: number): number {
+  if (previous === 0) return current > 0 ? 100 : 0;
+  return ((current - previous) / previous) * 100;
+}
+
+export function calculateMargin(revenue: number, cost: number): number {
+  if (revenue === 0) return 0;
+  return ((revenue - cost) / revenue) * 100;
+}
+
+export function calculateROI(gain: number, cost: number): number {
+  if (cost === 0) return 0;
+  return ((gain - cost) / cost) * 100;
 }
