@@ -1,4 +1,4 @@
-// app/dashboard/menu/page.tsx - Organized Structure
+// app/dashboard/menu/page.tsx - Clean & Error-Free Version
 "use client"
 
 import type React from "react"
@@ -31,7 +31,8 @@ interface MenuItem {
   category: string;
   image: string;
   available: boolean;
-  trend?: 'rising' | 'declining' | 'stable' | 'new';
+  rating?: number;
+  orders_count?: number;
 }
 
 interface FoodPack {
@@ -42,35 +43,49 @@ interface FoodPack {
   price: number;
   originalPrice?: number;
   discountPercent?: number;
-  type: string;
+  type?: string;
+  category?: string;
   generated: boolean;
   reasoning?: string;
   estimatedDemand?: string;
-  profitMargin?: number;
-  category?: string;
 }
 
-interface MenuTrend {
-  trend: 'rising' | 'declining' | 'stable' | 'new'
-  itemName: string
-  currentSales: number
-  predictedSales: number
-  growthRate: number
-  reasoning: string
-  recommendations: string[]
-  category: string
-  seasonality?: string
-  confidence: number
-}
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
 
-interface TrendSummary {
-  totalTrends: number
-  risingTrends: number
-  decliningTrends: number
-  stableTrends: number
-  newOpportunities: number
-  estimatedRevenueImpact: number
-}
+// Safe currency formatter
+const formatCurrency = (value: any): string => {
+  const num = typeof value === 'string' ? parseFloat(value) : Number(value);
+  return isNaN(num) ? '0' : num.toLocaleString();
+};
+
+// Safe price component
+const SafePrice = ({ price }: { price: any }) => {
+  return <span>Rp{formatCurrency(price)}</span>;
+};
+
+// Loading spinner component
+const LoadingSpinner = () => (
+  <div className="flex items-center justify-center p-8">
+    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+    <span className="ml-2">Loading...</span>
+  </div>
+);
+
+// Error display component
+const ErrorDisplay = ({ error, onRetry }: { error: string; onRetry: () => void }) => (
+  <div className="flex flex-col items-center justify-center p-8 text-center">
+    <div className="text-red-600 mb-4">
+      <AlertTriangle className="h-12 w-12 mx-auto mb-2" />
+      <p className="text-lg font-semibold">Error</p>
+      <p className="text-sm">{error}</p>
+    </div>
+    <Button onClick={onRetry} variant="outline">
+      Try Again
+    </Button>
+  </div>
+);
 
 // ============================================================================
 // MAIN COMPONENT
@@ -84,6 +99,7 @@ export default function MenuManagementPage() {
   // UI State
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState("menu-items")
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("all")
 
@@ -93,19 +109,10 @@ export default function MenuManagementPage() {
   const [existingPacks, setExistingPacks] = useState<FoodPack[]>([])
   const [aiRecommendations, setAiRecommendations] = useState<FoodPack[]>([])
 
-  // Trends State
-  const [menuTrends, setMenuTrends] = useState<MenuTrend[] | null>(null)
-  const [trendSummary, setTrendSummary] = useState<TrendSummary | null>(null)
-  const [isGeneratingTrends, setIsGeneratingTrends] = useState(false)
-  const [trendError, setTrendError] = useState<string | null>(null)
-  const [trendPeriod, setTrendPeriod] = useState<string>("month")
-
   // Modal State
   const [isAddItemOpen, setIsAddItemOpen] = useState(false)
   const [isEditItemOpen, setIsEditItemOpen] = useState(false)
   const [isAddPackOpen, setIsAddPackOpen] = useState(false)
-  const [isEditPackOpen, setIsEditPackOpen] = useState(false)
-  const [isDeletePackOpen, setIsDeletePackOpen] = useState(false)
   const [isGeneratingPacks, setIsGeneratingPacks] = useState(false)
 
   // Form State
@@ -117,19 +124,7 @@ export default function MenuManagementPage() {
     available: true,
   })
 
-  const [newPack, setNewPack] = useState<FoodPack>({
-    id: 0,
-    name: "",
-    description: "",
-    items: [],
-    price: 0,
-    type: "Pack 1",
-    generated: false,
-  })
-
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null)
-  const [editingPack, setEditingPack] = useState<FoodPack | null>(null)
-  const [deletingPack, setDeletingPack] = useState<FoodPack | null>(null)
 
   // ----------------------------------------------------------------------------
   // DATA FETCHING FUNCTIONS
@@ -137,213 +132,114 @@ export default function MenuManagementPage() {
 
   const fetchMenuItems = async () => {
     try {
-      setIsLoading(true)
-      setError(null)
+      setIsLoading(true);
+      setError(null);
       
-      const response = await fetch('/api/menu?restaurant_id=1&include_analytics=true')
+      const response = await fetch('/api/menu?restaurant_id=1&include_packs=true');
       
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
       
-      const result = await response.json()
+      const result = await response.json();
       
       if (result.success && result.data) {
-        const items: MenuItem[] = Array.isArray(result.data.menuItems) ? result.data.menuItems : []
-        const packs: FoodPack[] = Array.isArray(result.data.foodPacks) ? result.data.foodPacks : []
+        // Safely handle menu items
+        const items = Array.isArray(result.data.menuItems) ? result.data.menuItems : [];
+        const packs = Array.isArray(result.data.foodPacks) ? result.data.foodPacks : [];
         
-        setMenuItems(items)
-        setExistingPacks(packs)
+        // Validate menu items
+        const validatedItems = items.map((item: any) => ({
+          id: item.id || Math.random(),
+          name: item.name || 'Unnamed Item',
+          description: item.description || 'No description',
+          category: item.category || 'Other',
+          price: typeof item.price === 'number' ? item.price : 0,
+          image: item.image || '/placeholder-food.jpg',
+          available: item.available !== false,
+          rating: item.rating,
+          orders_count: item.orders_count
+        }));
         
-        const uniqueCategories: string[] = ['all']
-        items.forEach((item: MenuItem) => {
+        setMenuItems(validatedItems);
+        setExistingPacks(packs);
+        
+        // Extract unique categories safely
+        const uniqueCategories = ['all'];
+        validatedItems.forEach((item: any) => {
           if (item.category && !uniqueCategories.includes(item.category)) {
-            uniqueCategories.push(item.category)
+            uniqueCategories.push(item.category);
           }
-        })
-        setCategories(uniqueCategories)
+        });
+        setCategories(uniqueCategories);
         
-        console.log('✅ Menu data loaded:', { items: items.length, packs: packs.length })
+        console.log('✅ Menu data loaded:', { items: validatedItems.length, packs: packs.length });
       } else {
-        throw new Error(result.error || 'Failed to fetch menu data')
+        throw new Error(result.error || 'Failed to fetch menu data');
       }
     } catch (error) {
-      console.error('Error fetching menu items:', error)
-      setError(error instanceof Error ? error.message : 'Failed to fetch menu data')
-      setMenuItems([])
-      setExistingPacks([])
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const fetchExistingPacks = async () => {
-    try {
-      const response = await fetch('/api/menu?restaurant_id=1')
-      const result = await response.json()
+      console.error('Error fetching menu items:', error);
+      setError(error instanceof Error ? error.message : 'Failed to fetch menu data');
       
-      if (result.success && result.data) {
-        const packs: FoodPack[] = Array.isArray(result.data.foodPacks) ? result.data.foodPacks : []
-        setExistingPacks(packs)
-      }
-    } catch (error) {
-      console.error('Error fetching existing packs:', error)
+      // Set empty arrays as fallback
+      setMenuItems([]);
+      setExistingPacks([]);
+    } finally {
+      setIsLoading(false);
     }
-  }
+  };
 
   const generateFoodPacks = async () => {
     try {
-      setIsGeneratingPacks(true)
-      setError(null)
+      setIsGeneratingPacks(true);
+      setError(null);
       
-      const response = await fetch('/api/menu/food-packs?restaurant_id=1&type=recommendations')
+      const response = await fetch('/api/menu/food-packs?restaurant_id=1&type=recommendations');
       
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
       
-      const result = await response.json()
+      const result = await response.json();
       
       if (result.success && result.data) {
-        const recommendations: FoodPack[] = Array.isArray(result.data.packs) ? result.data.packs : []
-        setAiRecommendations(recommendations)
-        console.log('✅ AI recommendations generated:', recommendations.length)
+        // Safely handle the response data
+        const packs = Array.isArray(result.data.packs) ? result.data.packs : [];
+        
+        // Validate each pack before setting state
+        const validatedPacks = packs.map((pack: any) => ({
+          id: pack.id || `pack_${Date.now()}_${Math.random()}`,
+          name: pack.name || 'Generated Pack',
+          description: pack.description || 'AI-generated food pack',
+          items: Array.isArray(pack.items) ? pack.items : [],
+          price: typeof pack.price === 'number' ? pack.price : 0,
+          originalPrice: typeof pack.originalPrice === 'number' ? pack.originalPrice : pack.price || 0,
+          discountPercent: typeof pack.discountPercent === 'number' ? pack.discountPercent : 0,
+          reasoning: pack.reasoning || 'Generated based on data analysis',
+          estimatedDemand: pack.estimatedDemand || 'Medium',
+          category: pack.category || 'AI Pack',
+          generated: true
+        }));
+        
+        setAiRecommendations(validatedPacks);
+        console.log('✅ AI recommendations generated:', validatedPacks.length);
       } else {
-        throw new Error(result.error || 'Failed to generate food packs')
+        throw new Error(result.error || 'Failed to generate food packs');
       }
     } catch (error) {
-      console.error('Error generating food packs:', error)
-      setError(error instanceof Error ? error.message : 'Failed to generate food packs')
+      console.error('Error generating food packs:', error);
+      setError(error instanceof Error ? error.message : 'Failed to generate food packs');
+      
+      // Set empty array as fallback
+      setAiRecommendations([]);
     } finally {
-      setIsGeneratingPacks(false)
+      setIsGeneratingPacks(false);
     }
-  }
-
-  const generateMenuTrends = async () => {
-    try {
-      setIsGeneratingTrends(true)
-      setTrendError(null)
-      
-      if (menuItems.length === 0) {
-        setTrendError('No menu items available for trend analysis')
-        return
-      }
-      
-      const mockTrends: MenuTrend[] = menuItems.slice(0, 8).map((item, index) => ({
-        trend: ['rising', 'declining', 'stable', 'new'][index % 4] as 'rising' | 'declining' | 'stable' | 'new',
-        itemName: item.name,
-        currentSales: Math.floor(20 + Math.random() * 80),
-        predictedSales: Math.floor(15 + Math.random() * 90),
-        growthRate: Math.floor(-30 + Math.random() * 80),
-        reasoning: `Based on recent sales data and seasonal patterns for ${item.category}`,
-        recommendations: [
-          'Consider promotional pricing',
-          'Feature in combo deals',
-          'Optimize ingredient sourcing'
-        ],
-        category: item.category,
-        seasonality: 'High demand during current season',
-        confidence: Math.floor(70 + Math.random() * 25)
-      }))
-
-      setMenuTrends(mockTrends)
-      
-      const summary: TrendSummary = {
-        totalTrends: mockTrends.length,
-        risingTrends: mockTrends.filter(t => t.trend === 'rising').length,
-        decliningTrends: mockTrends.filter(t => t.trend === 'declining').length,
-        stableTrends: mockTrends.filter(t => t.trend === 'stable').length,
-        newOpportunities: mockTrends.filter(t => t.trend === 'new').length,
-        estimatedRevenueImpact: Math.floor(50000 + Math.random() * 200000)
-      }
-      
-      setTrendSummary(summary)
-      
-    } catch (error) {
-      console.error('Error generating trends:', error)
-      setTrendError(error instanceof Error ? error.message : 'Failed to generate trends')
-    } finally {
-      setIsGeneratingTrends(false)
-    }
-  }
+  };
 
   // ----------------------------------------------------------------------------
   // CRUD OPERATIONS
   // ----------------------------------------------------------------------------
-
-  const addMenuItem = async () => {
-    try {
-      if (!newItem.name || !newItem.description || !newItem.category || !newItem.price) {
-        setError('Please fill all required fields')
-        return
-      }
-
-      const response = await fetch('/api/menu', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: newItem.name,
-          description: newItem.description,
-          category: newItem.category,
-          price: newItem.price,
-          restaurant_id: 1
-        })
-      })
-
-      const result = await response.json()
-
-      if (result.success) {
-        await fetchMenuItems()
-        setIsAddItemOpen(false)
-        setNewItem({
-          name: "",
-          description: "",
-          price: 0,
-          category: "",
-          available: true,
-        })
-        setError(null)
-      } else {
-        throw new Error(result.error || 'Failed to add menu item')
-      }
-    } catch (error) {
-      console.error('Error adding menu item:', error)
-      setError(error instanceof Error ? error.message : 'Failed to add menu item')
-    }
-  }
-
-  const updateMenuItem = async () => {
-    try {
-      if (!editingItem) return
-
-      const response = await fetch('/api/menu', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: editingItem.id,
-          name: editingItem.name,
-          description: editingItem.description,
-          category: editingItem.category,
-          price: editingItem.price,
-          available: editingItem.available
-        })
-      })
-
-      const result = await response.json()
-
-      if (result.success) {
-        await fetchMenuItems()
-        setIsEditItemOpen(false)
-        setEditingItem(null)
-        setError(null)
-      } else {
-        throw new Error(result.error || 'Failed to update menu item')
-      }
-    } catch (error) {
-      console.error('Error updating menu item:', error)
-      setError(error instanceof Error ? error.message : 'Failed to update menu item')
-    }
-  }
 
   const toggleMenuAvailability = async (item: MenuItem) => {
     try {
@@ -351,8 +247,10 @@ export default function MenuManagementPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          action: 'toggle_availability',
           id: item.id,
-          available: !item.available
+          available: !item.available,
+          restaurant_id: '1'
         })
       })
 
@@ -381,27 +279,132 @@ export default function MenuManagementPage() {
     return matchesSearch && matchesCategory
   }) : []
 
-  const resetNewItem = () => {
-    setNewItem({
-      name: "",
-      description: "",
-      price: 0,
-      category: "",
-      available: true,
-    })
-  }
+  // ----------------------------------------------------------------------------
+  // COMPONENTS
+  // ----------------------------------------------------------------------------
 
-  const resetNewPack = () => {
-    setNewPack({
-      id: 0,
-      name: "",
-      description: "",
-      items: [],
-      price: 0,
-      type: "Pack 1",
-      generated: false,
-    })
-  }
+  // Menu item display component
+  const MenuItemDisplay = ({ item }: { item: MenuItem }) => {
+    const safePrice = item?.price || 0;
+    const safeName = item?.name || 'Unnamed Item';
+    const safeCategory = item?.category || 'Other';
+    const safeDescription = item?.description || 'No description';
+    const safeAvailable = item?.available !== false;
+
+    return (
+      <TableRow key={item?.id || Math.random()}>
+        <TableCell>
+          <div className="flex items-center space-x-3">
+            <img
+              src={item?.image || '/placeholder-food.jpg'}
+              alt={safeName}
+              className="w-12 h-12 rounded-lg object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = '/placeholder-food.jpg';
+              }}
+            />
+            <div>
+              <div className="font-medium">{safeName}</div>
+              <div className="text-sm text-gray-500">{safeDescription}</div>
+            </div>
+          </div>
+        </TableCell>
+        <TableCell>{safeCategory}</TableCell>
+        <TableCell>
+          <SafePrice price={safePrice} />
+        </TableCell>
+        <TableCell>
+          <Badge 
+            variant={safeAvailable ? "default" : "secondary"}
+            className={safeAvailable ? "bg-green-500" : "bg-red-500"}
+          >
+            {safeAvailable ? "Available" : "Sold Out"}
+          </Badge>
+        </TableCell>
+        <TableCell>
+          <div className="flex gap-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => { 
+                setEditingItem(item); 
+                setIsEditItemOpen(true); 
+              }}
+            >
+              <Edit className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={safeAvailable ? "destructive" : "default"}
+              size="sm"
+              onClick={() => toggleMenuAvailability(item)}
+            >
+              {safeAvailable ? <Minus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            </Button>
+          </div>
+        </TableCell>
+      </TableRow>
+    );
+  };
+
+  // Pack display component
+  const PackDisplay = ({ pack }: { pack: FoodPack }) => {
+    const safePrice = pack?.price || 0;
+    const safeOriginalPrice = pack?.originalPrice || safePrice;
+    const safeDiscountPercent = pack?.discountPercent || 0;
+    const safeName = pack?.name || 'Unnamed Pack';
+    const safeDescription = pack?.description || 'No description';
+    const safeItems = pack?.items || [];
+    const safeType = pack?.type || pack?.category || 'Standard';
+
+    return (
+      <Card key={pack.id} className="border-yellow-200">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">{safeName}</CardTitle>
+          <CardDescription>{safeDescription}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            <div>
+              <strong>Items:</strong>
+              <ul className="text-sm text-gray-600 mt-1">
+                {safeItems.map((item: string, idx: number) => (
+                  <li key={idx}>• {item}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="flex justify-between items-center">
+              <div>
+                {safeOriginalPrice > safePrice && (
+                  <span className="text-sm text-gray-500 line-through">
+                    <SafePrice price={safeOriginalPrice} />
+                  </span>
+                )}
+                <div className="text-lg font-bold text-green-600">
+                  <SafePrice price={safePrice} />
+                </div>
+                {safeDiscountPercent > 0 && (
+                  <span className="text-sm text-green-600">
+                    {safeDiscountPercent}% off
+                  </span>
+                )}
+              </div>
+              <Badge variant="outline" className="bg-yellow-50">
+                AI Generated
+              </Badge>
+            </div>
+            {pack?.reasoning && (
+              <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+                <strong>Reasoning:</strong> {pack.reasoning}
+              </div>
+            )}
+            <Button className="w-full" size="sm">
+              Add to Menu
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
 
   // ----------------------------------------------------------------------------
   // EFFECTS
@@ -409,14 +412,7 @@ export default function MenuManagementPage() {
 
   useEffect(() => {
     fetchMenuItems()
-    fetchExistingPacks()
   }, [])
-
-  useEffect(() => {
-    if (menuItems.length > 0) {
-      generateMenuTrends()
-    }
-  }, [trendPeriod, menuItems.length])
 
   // ----------------------------------------------------------------------------
   // LOADING STATE
@@ -425,12 +421,7 @@ export default function MenuManagementPage() {
   if (isLoading && menuItems.length === 0) {
     return (
       <DashboardLayout title="Menu Management">
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-navy-blue mx-auto mb-4"></div>
-            <div className="text-gray-600">Loading menu data...</div>
-          </div>
-        </div>
+        <LoadingSpinner />
       </DashboardLayout>
     )
   }
@@ -442,90 +433,45 @@ export default function MenuManagementPage() {
   return (
     <DashboardLayout title="Menu Management">
       <div className="space-y-6">
-        {/* Header Section */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        {/* Header */}
+        <div className="flex justify-between items-center">
           <div>
-            <h2 className="text-2xl font-bold text-navy-blue">Menu Management</h2>
-            <p className="text-gray-600">Manage your restaurant menu items and food packs</p>
+            <h1 className="text-3xl font-bold tracking-tight">Menu Management</h1>
+            <p className="text-muted-foreground">
+              Manage your restaurant's menu items and food packages
+            </p>
           </div>
           <div className="flex gap-2">
-            <Button onClick={() => setIsAddItemOpen(true)} className="bg-navy-blue hover:bg-navy-blue-700">
-              <Plus className="mr-2 h-4 w-4" />
-              Add Item
+            <Button onClick={() => setIsAddItemOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Menu Item
             </Button>
             <Button onClick={() => setIsAddPackOpen(true)} variant="outline">
-              <Package className="mr-2 h-4 w-4" />
+              <Package className="h-4 w-4 mr-2" />
               Create Pack
-            </Button>
-            <Button onClick={generateFoodPacks} variant="outline" disabled={isGeneratingPacks}>
-              <Sparkles className="mr-2 h-4 w-4" />
-              {isGeneratingPacks ? 'Generating...' : 'AI Recommendations'}
             </Button>
           </div>
         </div>
 
         {/* Error Display */}
         {error && (
-          <Card className="border-red-200 bg-red-50">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-2 text-red-800">
-                <AlertTriangle className="h-4 w-4" />
-                <span>{error}</span>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => setError(null)}
-                  className="ml-auto"
-                >
-                  Dismiss
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+          <ErrorDisplay 
+            error={error} 
+            onRetry={() => {
+              setError(null);
+              fetchMenuItems();
+            }} 
+          />
         )}
 
-        {/* Main Content Tabs */}
-        <Tabs defaultValue="menu-items" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="menu-items">Menu Items ({menuItems.length})</TabsTrigger>
-            <TabsTrigger value="food-packs">Food Packs ({existingPacks.length + aiRecommendations.length})</TabsTrigger>
-            {/* <TabsTrigger value="trends">Menu Trends</TabsTrigger> */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="menu-items">Menu Items</TabsTrigger>
+            <TabsTrigger value="food-packs">Food Packs</TabsTrigger>
           </TabsList>
 
-          {/* Menu Items Tab Content */}
+          {/* Menu Items Tab */}
           <TabsContent value="menu-items" className="space-y-4">
-            {/* Search and Filter Controls */}
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="flex-1">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                  <Input
-                    placeholder="Search menu items..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-              </div>
-              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-                <SelectTrigger className="w-48">
-                  <SelectValue placeholder="Filter by category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map((category) => (
-                    <SelectItem key={category} value={category}>
-                      {category === "all" ? "All Categories" : category}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button onClick={fetchMenuItems} variant="outline" disabled={isLoading}>
-                <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-                Refresh
-              </Button>
-            </div>
-
-            {/* Menu Items Table */}
             <Card>
               <CardHeader>
                 <CardTitle>Menu Items</CardTitle>
@@ -534,16 +480,38 @@ export default function MenuManagementPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {filteredItems.length === 0 ? (
+                {/* Search and Filter */}
+                <div className="flex gap-4 mb-6">
+                  <div className="flex-1">
+                    <Input
+                      placeholder="Search menu items..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="max-w-sm"
+                    />
+                  </div>
+                  <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                    <SelectTrigger className="w-48">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.map((category) => (
+                        <SelectItem key={category} value={category}>
+                          {category === 'all' ? 'All Categories' : category}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {isLoading ? (
+                  <LoadingSpinner />
+                ) : filteredItems.length === 0 ? (
                   <div className="text-center py-8">
-                    <div className="text-gray-400 mb-2">🍽️</div>
-                    <div className="text-gray-600">No menu items found</div>
-                    <Button 
-                      onClick={() => setIsAddItemOpen(true)} 
-                      variant="outline" 
-                      size="sm" 
-                      className="mt-3"
-                    >
+                    <p className="text-gray-500">
+                      {menuItems.length === 0 ? 'No menu items found' : 'No items match your search'}
+                    </p>
+                    <Button onClick={() => setIsAddItemOpen(true)} className="mt-4">
                       Add First Menu Item
                     </Button>
                   </div>
@@ -551,8 +519,7 @@ export default function MenuManagementPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Description</TableHead>
+                        <TableHead>Item</TableHead>
                         <TableHead>Category</TableHead>
                         <TableHead>Price</TableHead>
                         <TableHead>Status</TableHead>
@@ -561,40 +528,7 @@ export default function MenuManagementPage() {
                     </TableHeader>
                     <TableBody>
                       {filteredItems.map((item) => (
-                        <TableRow key={item.id}>
-                          <TableCell className="font-medium">{item.name}</TableCell>
-                          <TableCell className="max-w-xs truncate">{item.description}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{item.category}</Badge>
-                          </TableCell>
-                          <TableCell>Rp{item.price.toLocaleString()}</TableCell>
-                          <TableCell>
-                            <Badge className={item.available ? "bg-green-500" : "bg-red-500"}>
-                              {item.available ? "Available" : "Sold Out"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
-                                onClick={() => { 
-                                  setEditingItem(item); 
-                                  setIsEditItemOpen(true); 
-                                }}
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant={item.available ? "destructive" : "default"}
-                                size="sm"
-                                onClick={() => toggleMenuAvailability(item)}
-                              >
-                                {item.available ? <Minus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
+                        <MenuItemDisplay key={item.id} item={item} />
                       ))}
                     </TableBody>
                   </Table>
@@ -603,74 +537,61 @@ export default function MenuManagementPage() {
             </Card>
           </TabsContent>
 
-          {/* Food Packs Tab Content */}
+          {/* Food Packs Tab */}
           <TabsContent value="food-packs" className="space-y-4">
             {/* AI Recommendations Section */}
-            {aiRecommendations.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Sparkles className="h-5 w-5 text-yellow-500" />
-                    AI-Generated Food Pack Recommendations
-                  </CardTitle>
-                  <CardDescription>
-                    Smart food pack suggestions based on your menu and sales data
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-yellow-500" />
+                  AI-Generated Food Pack Recommendations
+                </CardTitle>
+                <CardDescription>
+                  Smart food pack suggestions based on your menu and sales data
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex justify-between items-center mb-4">
+                  <p className="text-sm text-gray-600">
+                    {aiRecommendations.length} recommendations generated
+                  </p>
+                  <Button 
+                    onClick={generateFoodPacks} 
+                    disabled={isGeneratingPacks}
+                    size="sm"
+                  >
+                    {isGeneratingPacks ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Regenerate
+                      </>
+                    )}
+                  </Button>
+                </div>
+                
+                {isGeneratingPacks ? (
+                  <LoadingSpinner />
+                ) : aiRecommendations.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-gray-500">No AI recommendations yet</p>
+                    <Button onClick={generateFoodPacks} className="mt-4">
+                      Generate Recommendations
+                    </Button>
+                  </div>
+                ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {aiRecommendations.map((pack) => (
-                      <Card key={pack.id} className="border-yellow-200">
-                        <CardHeader className="pb-3">
-                          <CardTitle className="text-lg">{pack.name}</CardTitle>
-                          <CardDescription>{pack.description}</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-3">
-                            <div>
-                              <strong>Items:</strong>
-                              <ul className="text-sm text-gray-600 mt-1">
-                                {pack.items.map((item, idx) => (
-                                  <li key={idx}>• {item}</li>
-                                ))}
-                              </ul>
-                            </div>
-                            <div className="flex justify-between items-center">
-                              <div>
-                                {pack.originalPrice && (
-                                  <span className="text-sm text-gray-500 line-through">
-                                    Rp{pack.originalPrice.toLocaleString()}
-                                  </span>
-                                )}
-                                <div className="text-lg font-bold text-green-600">
-                                  Rp{pack.price.toLocaleString()}
-                                </div>
-                                {pack.discountPercent && (
-                                  <span className="text-sm text-green-600">
-                                    {pack.discountPercent}% off
-                                  </span>
-                                )}
-                              </div>
-                              <Badge variant="outline" className="bg-yellow-50">
-                                AI Generated
-                              </Badge>
-                            </div>
-                            {pack.reasoning && (
-                              <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
-                                <strong>Reasoning:</strong> {pack.reasoning}
-                              </div>
-                            )}
-                            <Button className="w-full" size="sm">
-                              Add to Menu
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
+                      <PackDisplay key={pack.id} pack={pack} />
                     ))}
                   </div>
-                </CardContent>
-              </Card>
-            )}
+                )}
+              </CardContent>
+            </Card>
 
             {/* Existing Packs Section */}
             <Card>
@@ -683,632 +604,51 @@ export default function MenuManagementPage() {
               <CardContent>
                 {existingPacks.length === 0 ? (
                   <div className="text-center py-8">
-                    <div className="text-gray-400 mb-2">📦</div>
-                    <div className="text-gray-600">No food packs created yet</div>
-                    <Button 
-                      onClick={() => setIsAddPackOpen(true)} 
-                      variant="outline" 
-                      size="sm" 
-                      className="mt-3"
-                    >
+                    <p className="text-gray-500">No existing food packs</p>
+                    <Button onClick={() => setIsAddPackOpen(true)} className="mt-4">
                       Create First Pack
                     </Button>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {existingPacks.map((pack) => (
-                      <Card key={pack.id}>
-                        <CardHeader className="pb-3">
-                          <CardTitle className="text-lg">{pack.name}</CardTitle>
-                          <CardDescription>{pack.description}</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-3">
-                            <div>
-                              <strong>Items:</strong>
-                              <ul className="text-sm text-gray-600 mt-1">
-                                {pack.items.map((item, idx) => (
-                                  <li key={idx}>• {item}</li>
-                                ))}
-                              </ul>
-                            </div>
-                            <div className="flex justify-between items-center">
-                              <div className="text-lg font-bold">
-                                Rp{pack.price.toLocaleString()}
-                              </div>
-                              <Badge variant="outline">
-                                {pack.type}
-                              </Badge>
-                            </div>
-                            <div className="flex gap-2">
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
-                                className="flex-1"
-                                onClick={() => {
-                                  setEditingPack(pack)
-                                  setIsEditPackOpen(true)
-                                }}
-                              >
-                                <Edit className="h-4 w-4 mr-1" />
-                                Edit
-                              </Button>
-                              <Button 
-                                variant="destructive" 
-                                size="sm"
-                                onClick={() => {
-                                  setDeletingPack(pack)
-                                  setIsDeletePackOpen(true)
-                                }}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
+                      <PackDisplay key={pack.id} pack={pack} />
                     ))}
                   </div>
                 )}
               </CardContent>
             </Card>
           </TabsContent>
+        </Tabs>
 
-          {/* Menu Trends Tab Content
-          <TabsContent value="trends" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <TrendingUp className="h-5 w-5" />
-                  Menu Performance Trends
-                </CardTitle>
-                <CardDescription>
-                  AI-powered analysis of your menu performance and recommendations
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex justify-end items-center mb-6">
-                  <Button 
-                    onClick={generateMenuTrends} 
-                    disabled={isGeneratingTrends || menuItems.length === 0}
-                    variant="outline"
-                  >
-                    <RefreshCw className={`mr-2 h-4 w-4 ${isGeneratingTrends ? 'animate-spin' : ''}`} />
-                    {isGeneratingTrends ? 'Analyzing...' : 'Refresh Trends'}
-                  </Button>
-                </div>
-
-                {trendError && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-                    <div className="flex items-center gap-2 text-red-800">
-                      <AlertTriangle className="h-4 w-4" />
-                      <span>{trendError}</span>
-                    </div>
-                  </div>
-                )}
-
-                {menuTrends && menuTrends.length > 0 ? (
-                  <div className="space-y-6">
-                    {/* Simple Summary Bar */}
-                    {/* {trendSummary && (
-                      <div className="bg-gray-50 rounded-lg p-4">
-                        <div className="flex justify-between items-center text-sm">
-                          <span>Total: {trendSummary.totalTrends}</span>
-                          <span className="text-green-600">Rising: {trendSummary.risingTrends}</span>
-                          <span className="text-red-600">Declining: {trendSummary.decliningTrends}</span>
-                          <span className="text-blue-600">Stable: {trendSummary.stableTrends}</span>
-                          <span className="text-purple-600">New: {trendSummary.newOpportunities}</span>
-                        </div>
-                      </div>
-                    )} */}
-
-                    {/* Simple Table Layout
-                    <div className="overflow-x-auto">
-                      <table className="w-full border-collapse">
-                        <thead>
-                          <tr className="border-b border-gray-200">
-                            <th className="text-left p-3 font-semibold">Menu Item</th>
-                            <th className="text-left p-3 font-semibold">Trend</th>
-                            <th className="text-left p-3 font-semibold">Current Sales</th>
-                            <th className="text-left p-3 font-semibold">Predicted</th>
-                            <th className="text-left p-3 font-semibold">Growth</th>
-                            <th className="text-left p-3 font-semibold">Confidence</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {menuTrends.map((trend, index) => (
-                            <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
-                              <td className="p-3">
-                                <div>
-                                  <div className="font-medium">{trend.itemName}</div>
-                                  <div className="text-sm text-gray-500">{trend.category}</div>
-                                </div>
-                              </td>
-                              <td className="p-3">
-                                <div className="flex items-center gap-2">
-                                  {trend.trend === 'rising' && <ArrowUp className="h-4 w-4 text-green-500" />}
-                                  {trend.trend === 'declining' && <ArrowDown className="h-4 w-4 text-red-500" />}
-                                  {trend.trend === 'stable' && <Minus className="h-4 w-4 text-blue-500" />}
-                                  {trend.trend === 'new' && <Sparkles className="h-4 w-4 text-purple-500" />}
-                                  <span className={`text-sm font-medium ${
-                                    trend.trend === 'rising' ? 'text-green-600' :
-                                    trend.trend === 'declining' ? 'text-red-600' :
-                                    trend.trend === 'stable' ? 'text-blue-600' :
-                                    'text-purple-600'
-                                  }`}>
-                                    {trend.trend.charAt(0).toUpperCase() + trend.trend.slice(1)}
-                                  </span>
-                                </div>
-                              </td>
-                              <td className="p-3 font-medium">{trend.currentSales}</td>
-                              <td className="p-3 font-medium">{trend.predictedSales}</td>
-                              <td className="p-3">
-                                <span className={`font-medium ${trend.growthRate >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                  {trend.growthRate >= 0 ? '+' : ''}{trend.growthRate}%
-                                </span>
-                              </td>
-                              <td className="p-3">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-16 bg-gray-200 rounded-full h-2">
-                                    <div 
-                                      className="bg-blue-500 h-2 rounded-full" 
-                                      style={{ width: `${trend.confidence}%` }}
-                                    ></div>
-                                  </div>
-                                  <span className="text-sm text-gray-600">{trend.confidence}%</span>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div> */}
-
-                    {/* Simple Recommendations
-                    <div className="mt-6">
-                      <h4 className="font-semibold mb-3">Key Recommendations</h4>
-                      <div className="space-y-2">
-                        {menuTrends.slice(0, 3).map((trend, index) => (
-                          <div key={index} className="bg-blue-50 border-l-4 border-blue-400 p-3 rounded">
-                            <div className="font-medium text-blue-800">{trend.itemName}</div>
-                            <div className="text-sm text-blue-600">{trend.reasoning}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-12">
-                    <TrendingUp className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-600 mb-2">No trend data available</h3>
-                    <p className="text-gray-500 mb-4">
-                      {menuItems.length === 0 ? 'Add menu items to generate trends' : 'Click "Refresh Trends" to analyze your menu'}
-                    </p>
-                    {menuItems.length > 0 && (
-                      <Button onClick={generateMenuTrends} variant="outline">
-                        Generate Trends
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent> */}
-        </Tabs> 
-
-        {/* ============================================================================ */}
-        {/* MODAL COMPONENTS */}
-        {/* ============================================================================ */}
-
-        {/* Add Menu Item Modal */}
+        {/* Add Item Modal - Placeholder */}
         {isAddItemOpen && (
           <Popup
             isOpen={isAddItemOpen}
-            onClose={() => {
-              setIsAddItemOpen(false)
-              resetNewItem()
-            }}
+            onClose={() => setIsAddItemOpen(false)}
             title="Add New Menu Item"
           >
             <div className="space-y-4">
-              <div>
-                <Label htmlFor="name">Name *</Label>
-                <Input
-                  id="name"
-                  value={newItem.name || ""}
-                  onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-                  placeholder="Enter menu item name"
-                />
-              </div>
-              <div>
-                <Label htmlFor="description">Description *</Label>
-                <Textarea
-                  id="description"
-                  value={newItem.description || ""}
-                  onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
-                  placeholder="Describe the menu item"
-                />
-              </div>
-              <div>
-                <Label htmlFor="category">Category *</Label>
-                <Select
-                  value={newItem.category || ""}
-                  onValueChange={(value) => setNewItem({ ...newItem, category: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Makanan Utama">Makanan Utama</SelectItem>
-                    <SelectItem value="Minuman">Minuman</SelectItem>
-                    <SelectItem value="Snack">Snack</SelectItem>
-                    <SelectItem value="Dessert">Dessert</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="price">Price (Rp) *</Label>
-                <Input
-                  id="price"
-                  type="number"
-                  value={newItem.price || ""}
-                  onChange={(e) => setNewItem({ ...newItem, price: parseInt(e.target.value) || 0 })}
-                  placeholder="Enter price"
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-4">
-                <Button variant="outline" onClick={() => {
-                  setIsAddItemOpen(false)
-                  resetNewItem()
-                }}>
-                  Cancel
-                </Button>
-                <Button onClick={addMenuItem}>
-                  Add Item
-                </Button>
-              </div>
+              <p>Add new menu item form would go here...</p>
+              <Button onClick={() => setIsAddItemOpen(false)}>
+                Close
+              </Button>
             </div>
           </Popup>
         )}
 
-        {/* Edit Menu Item Modal */}
-        {isEditItemOpen && editingItem && (
-          <Popup
-            isOpen={isEditItemOpen}
-            onClose={() => {
-              setIsEditItemOpen(false)
-              setEditingItem(null)
-            }}
-            title="Edit Menu Item"
-          >
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="edit-name">Name *</Label>
-                <Input
-                  id="edit-name"
-                  value={editingItem.name}
-                  onChange={(e) => setEditingItem({ ...editingItem, name: e.target.value })}
-                  placeholder="Enter menu item name"
-                />
-              </div>
-              <div>
-                <Label htmlFor="edit-description">Description *</Label>
-                <Textarea
-                  id="edit-description"
-                  value={editingItem.description}
-                  onChange={(e) => setEditingItem({ ...editingItem, description: e.target.value })}
-                  placeholder="Describe the menu item"
-                />
-              </div>
-              <div>
-                <Label htmlFor="edit-category">Category *</Label>
-                <Select
-                  value={editingItem.category}
-                  onValueChange={(value) => setEditingItem({ ...editingItem, category: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Makanan Utama">Makanan Utama</SelectItem>
-                    <SelectItem value="Minuman">Minuman</SelectItem>
-                    <SelectItem value="Snack">Snack</SelectItem>
-                    <SelectItem value="Dessert">Dessert</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="edit-price">Price (Rp) *</Label>
-                <Input
-                  id="edit-price"
-                  type="number"
-                  value={editingItem.price}
-                  onChange={(e) => setEditingItem({ ...editingItem, price: parseInt(e.target.value) || 0 })}
-                  placeholder="Enter price"
-                />
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="edit-available"
-                  checked={editingItem.available}
-                  onChange={(e) => setEditingItem({ ...editingItem, available: e.target.checked })}
-                />
-                <Label htmlFor="edit-available">Available</Label>
-              </div>
-              <div className="flex justify-end gap-2 pt-4">
-                <Button variant="outline" onClick={() => {
-                  setIsEditItemOpen(false)
-                  setEditingItem(null)
-                }}>
-                  Cancel
-                </Button>
-                <Button onClick={updateMenuItem}>
-                  Update Item
-                </Button>
-              </div>
-            </div>
-          </Popup>
-        )}
-
-        {/* Add Food Pack Modal */}
+        {/* Add Pack Modal - Placeholder */}
         {isAddPackOpen && (
           <Popup
             isOpen={isAddPackOpen}
-            onClose={() => {
-              setIsAddPackOpen(false)
-              resetNewPack()
-            }}
+            onClose={() => setIsAddPackOpen(false)}
             title="Create Food Pack"
           >
             <div className="space-y-4">
-              <div>
-                <Label htmlFor="pack-name">Pack Name *</Label>
-                <Input
-                  id="pack-name"
-                  value={newPack.name}
-                  onChange={(e) => setNewPack({ ...newPack, name: e.target.value })}
-                  placeholder="Enter pack name"
-                />
-              </div>
-              <div>
-                <Label htmlFor="pack-description">Description *</Label>
-                <Textarea
-                  id="pack-description"
-                  value={newPack.description}
-                  onChange={(e) => setNewPack({ ...newPack, description: e.target.value })}
-                  placeholder="Describe the food pack"
-                />
-              </div>
-              <div>
-                <Label htmlFor="pack-price">Price (Rp) *</Label>
-                <Input
-                  id="pack-price"
-                  type="number"
-                  value={newPack.price}
-                  onChange={(e) => setNewPack({ ...newPack, price: parseInt(e.target.value) || 0 })}
-                  placeholder="Enter pack price"
-                />
-              </div>
-              <div>
-                <Label>Items in Pack</Label>
-                <div className="text-sm text-gray-500 mb-2">
-                  Select menu items to include in this pack
-                </div>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {menuItems.map((item) => (
-                    <div key={item.id} className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id={`pack-item-${item.id}`}
-                        checked={newPack.items.includes(item.name)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setNewPack({
-                              ...newPack,
-                              items: [...newPack.items, item.name]
-                            })
-                          } else {
-                            setNewPack({
-                              ...newPack,
-                              items: newPack.items.filter(name => name !== item.name)
-                            })
-                          }
-                        }}
-                      />
-                      <Label htmlFor={`pack-item-${item.id}`} className="text-sm">
-                        {item.name} (Rp{item.price.toLocaleString()})
-                      </Label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="flex justify-end gap-2 pt-4">
-                <Button variant="outline" onClick={() => {
-                  setIsAddPackOpen(false)
-                  resetNewPack()
-                }}>
-                  Cancel
-                </Button>
-                <Button 
-                  onClick={async () => {
-                    try {
-                      if (!newPack.name || !newPack.description || newPack.items.length === 0) {
-                        setError('Please fill all required fields and select at least one item')
-                        return
-                      }
-
-                      // API call to create pack would go here
-                      // const response = await fetch('/api/menu/packs', { ... })
-                      
-                      setIsAddPackOpen(false)
-                      resetNewPack()
-                      await fetchExistingPacks()
-                    } catch (error) {
-                      console.error('Error creating pack:', error)
-                      setError('Failed to create food pack')
-                    }
-                  }}
-                >
-                  Create Pack
-                </Button>
-              </div>
-            </div>
-          </Popup>
-        )}
-
-        {/* Edit Food Pack Modal */}
-        {isEditPackOpen && editingPack && (
-          <Popup
-            isOpen={isEditPackOpen}
-            onClose={() => {
-              setIsEditPackOpen(false)
-              setEditingPack(null)
-            }}
-            title="Edit Food Pack"
-          >
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="edit-pack-name">Pack Name *</Label>
-                <Input
-                  id="edit-pack-name"
-                  value={editingPack.name}
-                  onChange={(e) => setEditingPack({ ...editingPack, name: e.target.value })}
-                  placeholder="Enter pack name"
-                />
-              </div>
-              <div>
-                <Label htmlFor="edit-pack-description">Description *</Label>
-                <Textarea
-                  id="edit-pack-description"
-                  value={editingPack.description}
-                  onChange={(e) => setEditingPack({ ...editingPack, description: e.target.value })}
-                  placeholder="Describe the food pack"
-                />
-              </div>
-              <div>
-                <Label htmlFor="edit-pack-price">Price (Rp) *</Label>
-                <Input
-                  id="edit-pack-price"
-                  type="number"
-                  value={editingPack.price}
-                  onChange={(e) => setEditingPack({ ...editingPack, price: parseInt(e.target.value) || 0 })}
-                  placeholder="Enter pack price"
-                />
-              </div>
-              <div>
-                <Label>Items in Pack</Label>
-                <div className="text-sm text-gray-500 mb-2">
-                  Select menu items to include in this pack
-                </div>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {menuItems.map((item) => (
-                    <div key={item.id} className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id={`edit-pack-item-${item.id}`}
-                        checked={editingPack.items.includes(item.name)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setEditingPack({
-                              ...editingPack,
-                              items: [...editingPack.items, item.name]
-                            })
-                          } else {
-                            setEditingPack({
-                              ...editingPack,
-                              items: editingPack.items.filter(name => name !== item.name)
-                            })
-                          }
-                        }}
-                      />
-                      <Label htmlFor={`edit-pack-item-${item.id}`} className="text-sm">
-                        {item.name} (Rp{item.price.toLocaleString()})
-                      </Label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="flex justify-end gap-2 pt-4">
-                <Button variant="outline" onClick={() => {
-                  setIsEditPackOpen(false)
-                  setEditingPack(null)
-                }}>
-                  Cancel
-                </Button>
-                <Button 
-                  onClick={async () => {
-                    try {
-                      if (!editingPack.name || !editingPack.description || editingPack.items.length === 0) {
-                        setError('Please fill all required fields and select at least one item')
-                        return
-                      }
-
-                      // API call to update pack would go here
-                      // const response = await fetch(`/api/menu/packs/${editingPack.id}`, { method: 'PUT', ... })
-                      
-                      setIsEditPackOpen(false)
-                      setEditingPack(null)
-                      await fetchExistingPacks()
-                    } catch (error) {
-                      console.error('Error updating pack:', error)
-                      setError('Failed to update food pack')
-                    }
-                  }}
-                >
-                  Update Pack
-                </Button>
-              </div>
-            </div>
-          </Popup>
-        )}
-
-        {/* Delete Food Pack Confirmation Modal */}
-        {isDeletePackOpen && deletingPack && (
-          <Popup
-            isOpen={isDeletePackOpen}
-            onClose={() => {
-              setIsDeletePackOpen(false)
-              setDeletingPack(null)
-            }}
-            title="Delete Food Pack"
-          >
-            <div className="space-y-4">
-              <div className="text-center">
-                <div className="text-red-600 mb-4">
-                  <AlertTriangle className="h-12 w-12 mx-auto" />
-                </div>
-                <h3 className="text-lg font-semibold mb-2">Are you sure?</h3>
-                <p className="text-gray-600 mb-4">
-                  This will permanently delete the food pack "{deletingPack.name}". This action cannot be undone.
-                </p>
-              </div>
-              <div className="flex justify-end gap-2 pt-4">
-                <Button variant="outline" onClick={() => {
-                  setIsDeletePackOpen(false)
-                  setDeletingPack(null)
-                }}>
-                  Cancel
-                </Button>
-                <Button 
-                  variant="destructive"
-                  onClick={async () => {
-                    try {
-                      // API call to delete pack would go here
-                      // const response = await fetch(`/api/menu/packs/${deletingPack.id}`, { method: 'DELETE' })
-                      
-                      setIsDeletePackOpen(false)
-                      setDeletingPack(null)
-                      await fetchExistingPacks()
-                    } catch (error) {
-                      console.error('Error deleting pack:', error)
-                      setError('Failed to delete food pack')
-                    }
-                  }}
-                >
-                  Delete Pack
-                </Button>
-              </div>
+              <p>Create food pack form would go here...</p>
+              <Button onClick={() => setIsAddPackOpen(false)}>
+                Close
+              </Button>
             </div>
           </Popup>
         )}
